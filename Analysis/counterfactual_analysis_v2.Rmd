@@ -1,0 +1,1275 @@
+---
+title: "Dissertation_analysis_v1"
+output: html_document
+date: "2025-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup 
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(jsonlite)
+library(lme4)
+library(parameters)
+library(MASS)
+library(merDeriv)
+library(ordinal)
+library(patchwork)
+library(sjPlot)
+library(ggeffects)
+library(marginaleffects)
+library(interactions)
+library(gtsummary)
+library(performance)
+library(HLMdiag)
+select <- dplyr::select
+```
+
+## Reading in data
+
+```{r}
+df_raw <- read.csv("../data/exp_data/diss_data_prolific.csv") %>%
+  mutate(
+    date = format(as.Date(date, format = "%d/%m/%Y"), "%Y-%m-%d")
+  )
+
+# Subject level data
+subject_raw1 <- df_raw %>%
+  filter(date > as.Date("2025-03-23")) %>%
+  rowwise() %>%
+  do(data.frame(fromJSON(.$subject, flatten = T))) %>%
+  ungroup()
+
+# Condition information 
+condition_df <- data.frame(
+  condition = c("P", "Q", "R", "S"),
+  reward = c("low", "low", "high", "high"),
+  control = c("low", "high", "low", "high")
+)
+
+# Causal query information (answers)
+causal_query_answers <- read.csv("causal_query_answers.csv")
+
+# Trial level data
+upi_data <- subject_raw1 %>%
+  select(-c(cond_order, counter_balance_order, causal_query_structure, causal_query_relationship)) %>%
+  distinct() %>%
+  select(upi, condition) %>%
+  distinct() %>%
+  map_df(~rep(.x, each = 186))
+
+trial_raw <- df_raw %>% 
+  filter(date > as.Date("2025-03-23")) %>%
+  rowwise() %>%
+  do(data.frame(fromJSON(.$results, flatten = T))) %>%
+  ungroup() %>%
+  cbind(upi_data) %>%
+  unite("round", c(graph, cb_group), sep = "_", remove = FALSE) %>% # False so that counterbalance can be tracked
+  rename(
+    reward_region = reward # Rename this to not confuse with reward prevalence column in condition_df
+  ) %>%
+  full_join(condition_df, by = "condition") %>%
+  mutate(
+    trial_count = as.integer(trial_count),
+    trial_count = trial_count + 1, # Increase round count by one so that it starts from 1 instead of 0
+    condition = factor(condition, # Add condition labels 
+                       levels = c("P", "Q", "R", "S"), 
+                       labels = c("Low Reward Low Control", "Low Reward High Control", 
+                                  "High Reward Low Control", "High Reward High Control"))
+  ) 
+```
+
+# Concentration checks and exclusion criterion
+
+```{r}
+# Lost focus on trials for more than 10 timesteps 
+no_focus <- trial_raw %>%
+  group_by(upi) %>%
+  count(has_focus) %>%
+  filter(has_focus == 0 & n > 10) 
+
+# Took more than 40 minutes to complete the experiment 
+subject_times_raw <- subject_raw1 %>%
+  distinct(upi, start_time, end_time) %>%
+  mutate(
+    start = as.POSIXct(start_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    end = as.POSIXct(end_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    time = as.numeric(difftime(end, start, units = "mins"))
+  ) 
+
+long_time <- subject_times_raw %>%
+  filter(time > 40) 
+
+# Participants who concentrated
+subject_concentration <- subject_raw1 %>%
+  select(-c(cond_order, counter_balance_order, causal_query_structure, causal_query_relationship)) %>%
+  distinct() %>%
+  # Filter out participants who had 3 or more false attempts on the task, self-reported being distracted, lost focus (on another tab or application) during the experiment, and took longer than 40 minutes to complete the experiment
+  filter(false_attempts < 3 & concentration == "yes" & upi != as.character(no_focus[1,1]) & !(upi %in% long_time$upi)) %>%
+  select(upi)
+```
+
+# Tidying up data
+
+## Explanation of dataframes 
+
+Round_df: Rounds 1-6 level data 
+trial_df0: Placeholder
+Trial_df1: Within the rounds, data for individual timesteps (swapped for counterbalancing)
+subject_df: Subject level data
+
+```{r}
+subject_raw2 <- subject_raw1 %>%
+  # Excluding participants who did not concentrate
+  inner_join(subject_concentration, by = "upi") %>%
+  # Matching causal query to see if it is correct 
+  mutate(
+    causal_query_relationship = ifelse(causal_query_relationship == "-1", "neg", "pos"),
+  ) %>%
+  unite("round", c(cond_order, counter_balance_order), sep = "_", remove = TRUE) %>%
+  unite("causal_query", c(causal_query_structure, causal_query_relationship), sep = "_", remove = TRUE) %>%
+  mutate( 
+    causal_identified = paste(round, causal_query) %in% 
+                        paste(causal_query_answers$round, causal_query_answers$causal_query)
+  ) %>%
+  # Adding informative condition columns 
+  full_join(condition_df, by = "condition") %>%
+  # Tallying hope scale data
+  select(-c(hope3, hope5, hope7, hope11)) %>%
+  mutate(
+    across(c(hope1:hope12, pre_control:post_difficulty, age, engagement), function(x) as.integer(x)),
+    across(c(trackpad, reward, control, upi), function(x) as.factor(x)),
+    hope_scale = rowSums(across(hope1:hope12))
+  ) %>%
+  # Removing redundant columns
+  select(-c(proid, condition:sigma, false_attempts, hope1:hope12, strategy:text_bug))
+```
+
+## trial_df data
+
+```{r}
+trial_df0 <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  group_by(upi, trial_count, round, condition, reward, control) %>%
+  summarise(
+    interventions = max(cum_int),
+    score = max(cum_trial_score) - max(cum_int),
+    successful_reward = sum(reward_region) 
+  ) %>%
+  ungroup()
+```
+
+```{r}
+trial_df1 <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  mutate(
+    # Swap x_val and y_val
+    temp_val = ifelse(cb_group == "B", x_val, x_val),
+    x_val = ifelse(cb_group == "B", y_val, x_val),
+    y_val = ifelse(cb_group == "B", temp_val, y_val),
+    
+    # Swap x_int and y_int
+    temp_int = ifelse(cb_group == "B", x_int, x_int),
+    x_int = ifelse(cb_group == "B", y_int, x_int),
+    y_int = ifelse(cb_group == "B", temp_int, y_int),
+    
+    # Changing to 1s and 0s for reward_region
+    reward_region = as.integer(reward_region),
+    
+    # Changing name labels for trial_count for plotting
+    trial_count = factor(trial_count, 
+                       levels = c("1", "2", "3", "4", "5", "6"), 
+                       labels = c("Training R1", "Training R2", "Training R3", "Test R1", "Test R2", "Test R3"))
+  ) %>%
+  select(-c(x_held, y_held, z_int, cum_int:cum_trial_score, round, cb_group, has_focus, temp_val, temp_int))
+```
+
+## round_df data
+
+```{r}
+round_df1 <- trial_df0 %>%
+  select(upi, round, trial_count, interventions, successful_reward, score, condition) %>%
+  full_join(subject_raw2, by = c("upi", "round")) %>%
+  mutate(
+    score = score.x,
+    final_score = score.y,
+    phase = ifelse(trial_count < 4, "training", "test"),
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control")
+  ) %>%
+  select(-c(score.x, score.y)) 
+```
+
+## subject_df data
+
+```{r}
+subject_df1 <- round_df1 %>%
+  select(upi, condition, reward, control, pre_control:engagement, hope_scale, final_score, start_time, end_time) %>%
+  distinct() %>%
+  mutate(
+    start = as.POSIXct(start_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    end = as.POSIXct(end_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    time = as.numeric(difftime(end, start, units = "mins")),
+    age = as.integer(age),
+    gender = as.factor(gender),
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control")
+  ) 
+```
+
+# Counterfactual analysis
+
+Note: Noise ignored, which was a sigma of 4 in high control, 18 in low during the experiment 
+Theta = [-1, 0, 1] for high control
+Theta = [-0.25, 0, 0.25] for low control
+
+```{r}
+# Omega for conditions was standard at 0.8
+omega = 0.8
+
+counterfactual_0 <- trial_df1 %>%
+  group_by(upi, trial_count) %>%
+  mutate(
+    reward_region_lead = lead(reward_region),
+    z_lead = lead(z_val),
+    intervention = x_int + y_int
+  ) %>%
+  mutate(
+    previous_x = lag(x_val),
+    previous_y = lag(y_val),
+    previous_z = lag(z_val),
+  ) %>%
+  rename( # Make the column headings more clear given now we're dealing with the previous and next timestep
+    next_z = z_lead,
+    current_x = x_val,
+    current_y = y_val,
+    current_z = z_val,
+    current_reward = reward_region,
+    next_reward = reward_region_lead
+  ) %>%
+  filter(intervention == 1) %>%
+  mutate(
+    control = ifelse( # Changing low control conditions to high in control variable for test rounds
+      trial_count %in% c("Training R1", "Training R2", "Training R3") & condition %in% c("Low Reward Low Control", "High Reward Low Control"),
+      "low", "high")
+  )
+
+# Because timestep 30 is the last timesteps, all interventions are inconsequential 
+counterfactual_inconsequential_30 <- counterfactual_0 %>%
+  filter(step_counter == 30) %>%
+  ungroup() %>%
+  mutate(
+    counterfactual = "Inconsequential"
+  ) 
+
+# Filter out timestep 30 that is in the other df 
+counterfactual_1 <- counterfactual_0 %>% 
+  filter(step_counter != 30)
+
+# Calculating counterfactual X or Y values if participant had not intervened at the current timestep 
+counterfactual_current <- counterfactual_1 %>%
+  mutate(
+    # Updating current x values based on causal graph and condition 
+    current_x_updated = case_when(
+      # If X had not been intervened on, retain current value as calculated in JS
+      x_int == "0" ~ current_x, 
+      
+      # If high control (theta weights = 1 or -1)
+      x_int == "1" & graph == "1" & control == "high" ~ omega * (-previous_x) + previous_x,
+      x_int == "1" & graph == "2" & control == "high" ~ omega * (-previous_y - previous_x) + previous_x,
+      x_int == "1" & graph == "3" & control == "high" ~ omega * (previous_y - previous_x) + previous_x,
+      x_int == "1" & graph == "4" & control == "high" ~ omega * (-previous_y + previous_z - previous_x) + previous_x,
+      x_int == "1" & graph == "5" & control == "high" ~ omega * (previous_z - previous_x) + previous_x,
+      x_int == "1" & graph == "6" & control == "high" ~ omega * (-previous_y - previous_z - previous_x) + previous_x,
+      
+      # If low control (theta weights are 0.25 or -0.25, which is the expected value of a beta(1,3) distribution)
+      x_int == "1" & graph == "1" & control == "low" ~ omega * (-previous_x) + previous_x,
+      x_int == "1" & graph == "2" & control == "low" ~ omega * ((-0.25 * previous_y) - previous_x) + previous_x,
+      x_int == "1" & graph == "3" & control == "low" ~ omega * ((0.25 * previous_y) - previous_x) + previous_x,
+      x_int == "1" & graph == "4" & control == "low" ~ omega * ((-0.25 * previous_y) + (0.25 * previous_z) - previous_x) + previous_x,
+      x_int == "1" & graph == "5" & control == "low" ~ omega * ((0.25 * previous_z) - previous_x) + previous_x,
+      x_int == "1" & graph == "6" & control == "low" ~ omega * ((-0.25 * previous_y) + (-0.25 * previous_z) - previous_x) + previous_x,
+    ),
+    
+    current_x_updated = round(current_x_updated),
+    
+    # Values are bounded between -100 and 100 
+    current_x_updated = ifelse(current_x_updated > 100, 100, ifelse(current_x_updated < -100, -100, current_x_updated)),
+    
+    # Updating current y values based on causal graph and condition  
+    current_y_updated = case_when(
+      # If Y had not been intervened on, retain current value as calculated in JS
+      y_int == "0" ~ current_y, 
+      
+      # If high control 
+      y_int == "1" & graph == "1" & control == "high" ~ omega * (-0.25 * previous_x - previous_y) + previous_y,
+      y_int == "1" & graph %in% c(2:6) & control == "high" ~ omega * (- previous_y) + previous_y,
+      
+      # If low control 
+      y_int == "1" & graph == "1" & control == "low" ~ omega * ((-0.25 * previous_x) - previous_y) + previous_y,
+      y_int == "1" & graph %in% c(2:6) & control == "low" ~ omega * (- previous_y) + previous_y,
+      ),
+    
+    current_y_updated = round(current_y_updated),
+    current_y_updated = ifelse(current_y_updated > 100, 100, ifelse(current_y_updated < -100, -100, current_y_updated)),
+  )
+
+# Calculating counterfactual Z values in next timestep if one hadn't intervened at current timestep 
+counterfactual_next <- counterfactual_current %>%
+  mutate(
+    next_z_counterfactual = case_when(
+      # If high control
+      graph == "1" & control == "high" ~ omega * (-current_x_updated + current_y_updated - current_z) + current_z,  
+      graph %in% c("2", "4") & control == "high" ~ omega * (-current_x_updated - current_z) + current_z,  
+      graph %in% c("3", "5", "6") & control == "high" ~ omega * (-current_x_updated - current_y_updated - current_z) + current_z,
+      
+      # If low control
+      graph == "1" & control == "low" ~ omega * ((-0.25 * current_x_updated) + (0.25 * current_y_updated) - current_z) + current_z,  
+      graph %in% c("2", "4") & control == "low" ~ omega * ((-0.25 * current_x_updated) - current_z) + current_z,  
+      graph %in% c("3", "5", "6") & control == "low" ~ omega * ((-0.25 * current_x_updated) + (-0.25 * current_y_updated) - current_z) + current_z,
+      ),
+    next_z_counterfactual = round(next_z_counterfactual),
+    next_z_counterfactual = ifelse(next_z_counterfactual > 100, 100, ifelse(next_z_counterfactual < -100, -100, next_z_counterfactual)),
+    
+    counterfactual_reward = case_when(
+      reward == "high" ~ ifelse(next_z_counterfactual >= 30 & next_z_counterfactual <= 70, 1, 0),
+      reward == "low" ~ ifelse(next_z_counterfactual >= 40 & next_z_counterfactual <= 60, 1, 0)
+      )
+    )
+
+counterfactual_df <- counterfactual_next %>%
+  mutate(
+    counterfactual = case_when(
+        next_reward == 0 & counterfactual_reward == 0 ~ "Inconsequential",
+        next_reward == 0 & counterfactual_reward == 1 ~ "Detrimental",
+        next_reward == 1 & counterfactual_reward == 0 ~ "Necessary",
+        next_reward == 1 & counterfactual_reward == 1 ~ "Redundant"
+        )
+  ) %>%
+  rbind(counterfactual_inconsequential_30) # Adding back the inconsequential interventions at time = 30
+```
+
+## Proportion of types of interventions in training phase by condition 
+
+```{r}
+training_prop <- counterfactual_df %>% 
+  filter(trial_count %in% c("Training R1", "Training R2", "Training R3")) %>%
+  group_by(condition) %>%
+  count(counterfactual) %>%
+  mutate(
+    proportion = n / sum(n),
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control"),
+    counterfactual = factor(counterfactual, levels = c("Redundant","Detrimental", "Necessary", "Inconsequential")),
+    sum = sum(n)
+    )
+
+training_prop
+```
+
+```{r}
+training_prop %>%
+  select(condition, n) %>%
+  group_by(condition) %>%
+  mutate(
+    sum = sum(n)
+  )
+```
+  
+```{r}
+counterfactual_plot1 <- training_prop %>%
+  ggplot(aes(x = condition, y = proportion, fill = counterfactual)) +
+  geom_col(position = "stack", width = 0.75) +
+  geom_text(aes(label = paste0(round(proportion, 3) * 100, "%")),
+            size = ifelse(training_prop$proportion < 0.04, 2.5, 4), 
+            position = position_stack(vjust = 0.5)) + 
+            # color = ifelse(training_prop$intervention == "1", 'black', 'white')) +
+  scale_fill_manual("counterfactual",
+                    values = c("Detrimental" = "#E9C8B1",
+                               "Redundant" = "#DBAD9C",
+                               "Necessary" = "#F0DBC5",
+                               "Inconsequential" = "#C2A9A1"),
+                    name = "The intervention was:") +
+  labs(x = NULL, y = "Proportion", title = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = c("Low Reward Low Control" = "Low Control\nSmall Reward Region\n(n = 1124)", "Low Reward High Control" = "High Control\nSmall Reward Region\n(n = 1454)", "High Reward Low Control" = "Low Control\nLarge Reward Region\n(n = 1512)", "High Reward High Control" = "High Control\nLarge Reward Region\n(n = 1242)")) +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+    )
+
+counterfactual_plot1
+```
+
+## Proportion of types of interventions in testing phase by condition 
+
+```{r}
+test_prop <- counterfactual_df %>% 
+  filter(trial_count %in% c("Test R1", "Test R2", "Test R3")) %>%
+  group_by(condition) %>%
+  count(counterfactual) %>%
+  mutate(
+    proportion = n / sum(n),
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control"),
+    counterfactual = factor(counterfactual, levels = c("Redundant","Detrimental", "Necessary", "Inconsequential")),
+    sum = sum(n)
+  )
+test_prop
+```
+
+```{r}
+counterfactual_plot2 <- test_prop %>%
+  ggplot(aes(x = condition, y = proportion, fill = counterfactual)) +
+  geom_col(position = "stack", width = 0.75) +
+  geom_text(aes(label = paste0(round(proportion, 3) * 100, "%")),
+            size = ifelse(test_prop$proportion < 0.04, 2.5, 4), 
+            position = position_stack(vjust = 0.5)) + 
+            # color = ifelse(test_prop$intervention == "1", 'black', 'white')) +
+  scale_fill_manual("counterfactual",
+                    values = c("Detrimental" = "#E9C8B1",
+                               "Redundant" = "#DBAD9C",
+                               "Necessary" = "#F0DBC5",
+                               "Inconsequential" = "#C2A9A1"),
+                    name = "The intervention was:") +
+  labs(x = NULL, y = "Proportion", title = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = c("Low Reward Low Control" = "Low Control\nSmall Reward Region\n(n = 947)", "Low Reward High Control" = "High Control\nSmall Reward Region\n(n = 1476)", "High Reward Low Control" = "Low Control\nLarge Reward Region\n(n = 1298)", "High Reward High Control" = "High Control\nLarge Reward Region\n(n = 1340)")) +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+    )
+
+counterfactual_plot2
+```
+
+```{r}
+counterfactual_plot1 / counterfactual_plot2
+```
+
+## Redoing the graphs with raw counts instead of percentages 
+
+```{r}
+counterfactual_plot3 <- training_prop %>%
+  ungroup() %>%
+  complete(
+    condition,
+    counterfactual,
+    fill = list(n = 0, proportion = 0)
+  ) %>%
+  ggplot(aes(x = condition, y = n, fill = counterfactual)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = n),
+            size = 3.5,
+            # size = ifelse(training_prop$n < 20, 2.5, 4), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.3) + 
+  scale_fill_manual(
+    values = c(
+      "Detrimental" = "#E9C8B1",
+      "Redundant" = "#DBAD9C",
+      "Necessary" = "#F0DBC5",
+      "Inconsequential" = "#C2A9A1"
+    ),
+    name = "The intervention was:"
+  ) +
+  labs(
+    x = NULL,
+    y = "Intervention Count",
+    title = NULL
+  ) +
+  scale_x_discrete(labels = c(
+    "Low Reward Low Control" = "Low Control\nSmall Reward Region",
+    "Low Reward High Control" = "High Control\nSmall Reward Region",
+    "High Reward Low Control" = "Low Control\nLarge Reward Region",
+    "High Reward High Control" = "High Control\nLarge Reward Region"
+  )) +
+  scale_y_continuous(breaks = seq(0, 1250, by = 250)) +
+  ylim(0, 1400) +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+  )
+
+counterfactual_plot3
+```
+
+```{r}
+counterfactual_plot4 <- test_prop %>%
+  ggplot(aes(x = condition, y = n, fill = counterfactual)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = n),
+            size = 3.5,
+            # size = ifelse(training_prop$n < 20, 2.5, 4), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.3) + 
+  scale_fill_manual(
+    values = c(
+      "Detrimental" = "#E9C8B1",
+      "Redundant" = "#DBAD9C",
+      "Necessary" = "#F0DBC5",
+      "Inconsequential" = "#C2A9A1"
+    ),
+    name = "The intervention was:"
+  ) +
+  labs(
+    x = NULL,
+    y = "Intervention Count",
+    title = NULL
+  ) +
+  scale_x_discrete(labels = c(
+    "Low Reward Low Control" = "Low Control\nSmall Reward Region",
+    "Low Reward High Control" = "High Control\nSmall Reward Region",
+    "High Reward Low Control" = "Low Control\nLarge Reward Region",
+    "High Reward High Control" = "High Control\nLarge Reward Region"
+  )) +
+  scale_y_continuous(breaks = seq(0, 1250, by = 250)) +
+  ylim(0, 1400) +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+  )
+
+counterfactual_plot4
+```
+
+### Combined plot just facetted 
+
+```{r}
+combined_prop <- counterfactual_df %>% 
+  mutate(
+    phase = ifelse(trial_count %in% c("Training R1", "Training R2", "Training R3"), "Training", "Test"),
+    phase = fct_relevel(as.factor(phase), "Training")
+  ) %>%
+  group_by(phase, condition) %>%
+  count(counterfactual) %>%
+  mutate(
+    proportion = n / sum(n),
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control"),
+    counterfactual = factor(counterfactual, levels = c("Redundant","Detrimental", "Necessary", "Inconsequential")),
+    sum = sum(n)
+    ) %>%
+  ungroup() %>%
+  complete(
+    condition,
+    counterfactual,
+    phase, 
+    fill = list(n = 0, proportion = 0)
+  ) 
+
+counterfactual_plot5 <- combined_prop %>%
+  ggplot(aes(x = condition, y = n, fill = counterfactual)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = n),
+            size = 3.5,
+            # size = ifelse(training_prop$n < 20, 2.5, 4), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.3) + 
+  scale_fill_manual(
+    values = c(
+      "Detrimental" = "#E9C8B1",
+      "Redundant" = "#DBAD9C",
+      "Necessary" = "#F0DBC5",
+      "Inconsequential" = "#C2A9A1"
+    ),
+    name = "The intervention was:"
+  ) +
+  labs(
+    x = NULL,
+    y = "Intervention Count",
+    title = NULL
+  ) +
+  scale_x_discrete(labels = c(
+    "Low Reward Low Control" = "Low Control\nSmall Reward Region",
+    "Low Reward High Control" = "High Control\nSmall Reward Region",
+    "High Reward Low Control" = "Low Control\nLarge Reward Region",
+    "High Reward High Control" = "High Control\nLarge Reward Region"
+  )) +
+  scale_y_continuous(breaks = seq(0, 1250, by = 250)) +
+  ylim(0, 1400) +
+  facet_wrap(~phase) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 12),
+    legend.position = "top",
+    axis.text.x = element_text(size = 8),
+    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+  )
+
+counterfactual_plot5
+
+```
+
+```{r}
+combined_prop %>%
+  filter(phase == "Training") %>%
+  select(condition, counterfactual, n)
+```
+
+
+
+```{r}
+ggsave("../figures/analysis_figures/counterfactual_counts.png", counterfactual_plot5, height = 5, width = 10.5, dpi = 600)
+```
+
+# Normalised counts 
+
+```{r}
+counterfactual_plot6 <- combined_prop %>%
+  full_join(count(subject_df1, condition, name = "condition_n")) %>%
+  mutate(
+    average_n = round(n / condition_n, digits = 1)
+  ) %>%
+  ggplot(aes(x = condition, y = average_n, fill = counterfactual)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = average_n),
+            size = 3.5,
+            # size = ifelse(training_prop$n < 20, 2.5, 4), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.3) + 
+  scale_fill_manual(
+    values = c(
+      "Detrimental" = "#E9C8B1",
+      "Redundant" = "#DBAD9C",
+      "Necessary" = "#F0DBC5",
+      "Inconsequential" = "#C2A9A1"
+    ),
+    name = "The intervention was:"
+  ) +
+  labs(
+    x = NULL,
+    y = "Intervention Count",
+    title = NULL
+  ) +
+  scale_x_discrete(labels = c(
+    "Low Reward Low Control" = "Low Control\nSmall Reward Region",
+    "Low Reward High Control" = "High Control\nSmall Reward Region",
+    "High Reward Low Control" = "Low Control\nLarge Reward Region",
+    "High Reward High Control" = "High Control\nLarge Reward Region"
+  )) +
+  # scale_y_continuous(breaks = seq(0, 1250, by = 250)) +
+  # ylim(0, 1400) +
+  facet_wrap(~phase) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 12),
+    legend.position = "top",
+    axis.text.x = element_text(size = 8),
+    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+  )
+
+counterfactual_plot6
+```
+
+
+```{r}
+counterfactual_plot5 <- combined_prop %>%
+  ggplot(aes(x = condition, y = n, fill = counterfactual)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = n),
+            size = 3.5,
+            # size = ifelse(training_prop$n < 20, 2.5, 4), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.3) + 
+  scale_fill_manual(
+    values = c(
+      "Detrimental" = "#E9C8B1",
+      "Redundant" = "#DBAD9C",
+      "Necessary" = "#F0DBC5",
+      "Inconsequential" = "#C2A9A1"
+    ),
+    name = "The intervention was:"
+  ) +
+  labs(
+    x = NULL,
+    y = "Intervention Count",
+    title = NULL
+  ) +
+  scale_x_discrete(labels = c(
+    "Low Reward Low Control" = "Low Control\nSmall Reward Region",
+    "Low Reward High Control" = "High Control\nSmall Reward Region",
+    "High Reward Low Control" = "Low Control\nLarge Reward Region",
+    "High Reward High Control" = "High Control\nLarge Reward Region"
+  )) +
+  scale_y_continuous(breaks = seq(0, 1250, by = 250)) +
+  ylim(0, 1400) +
+  facet_wrap(~phase) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 12),
+    legend.position = "top",
+    axis.text.x = element_text(size = 8),
+    axis.title.y = element_text(size = 15),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12)
+  )
+
+counterfactual_plot5
+```
+
+
+## Counterfactual type counts by upi, phase 
+
+```{r}
+counterfactual_count <- counterfactual_df %>%
+  mutate(
+    phase = sub(" .*", "", trial_count)
+    ) %>%
+  ungroup() %>%
+  count(upi, phase, counterfactual) %>%
+  pivot_wider(
+    names_from = counterfactual, 
+    values_from = n
+  ) %>%
+  mutate(
+    across(everything(), ~ replace(., is.na(.), 0))
+    ) %>%
+  # Adding missing row where participant didn't intervene at all in test phase 
+  rbind(data.frame( 
+    upi = "beulpvfoea",
+    phase = "Test",
+    Inconsequential = "0",
+    Necessary = "0",
+    Detrimental = "0",
+    Redundant = "0")
+    ) %>%
+  mutate(
+    across(c("Inconsequential":"Redundant"), as.integer)
+  )
+```
+
+# Subjective Control (self-report/perceived controllability)
+
+## Subjective Control Raw Data Plot
+
+```{r}
+subjective_control <- subject_df1 %>%
+  rename(
+    pre_pcontrol = pre_control,
+    post_pcontrol = post_control 
+  ) %>%
+  pivot_longer(cols = c(pre_pcontrol, post_pcontrol, pre_difficulty, post_difficulty), 
+               names_to = c("group", ".value"), 
+               names_sep = "_") %>%
+  mutate(
+    phase = fct_recode(group,
+                       "Test" = "post",
+                       "Training" = "pre"),
+    phase = fct_relevel(phase, "Training"),
+    control = fct_recode(control,
+                        "low_control" = "low",
+                        "high_control" = "high"),
+    control = fct_relevel(control, "high_control"),
+    reward = fct_recode(reward,
+                        "low_reward" = "low",
+                        "high_reward" = "high"),
+    reward = fct_relevel(reward, "high_reward"),
+    pcontrol_ordered = factor(pcontrol, levels = 0:10, ordered = TRUE),
+    upi = as.factor(upi)
+  ) %>%
+  full_join(counterfactual_count, by = c("upi", "phase")) 
+```
+
+## Subjective Control Model
+
+### Ordinal regression model clm 
+
+```{r}
+subject_control_mdl1 <- clm(pcontrol_ordered ~ Detrimental + Inconsequential + Necessary + Redundant, data = subjective_control)
+
+summary(subject_control_mdl1)
+```
+
+```{r}
+exp(coef(subject_control_mdl1)[11])
+exp(coef(subject_control_mdl1)[12])
+exp(coef(subject_control_mdl1)[13])
+exp(coef(subject_control_mdl1)[14])
+```
+
+### Linear mixed effects model
+
+```{r}
+summary(lm(pcontrol ~ Detrimental + Inconsequential + Necessary + Redundant, data = subjective_control))
+
+subject_control_mdl2 <- lmer(pcontrol ~ Detrimental + Inconsequential + Necessary + Redundant + (1 | upi), data = subjective_control)
+
+model_parameters(subject_control_mdl2, method = "kr")
+```
+
+### Mixed effects ordinal regression model clmm 
+
+```{r}
+subject_control_mdl3 <- clmm(pcontrol_ordered ~ Detrimental + Inconsequential + Necessary + Redundant  + (1 | upi), data = subjective_control, Hess = TRUE, nAGQ=10)
+
+summary(subject_control_mdl3)
+```
+Estimates
+
+```{r}
+coef(subject_control_mdl3)[11:14] %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+SEs
+
+```{r}
+round(summary(subject_control_mdl3)$coefficients[11:14,"Std. Error"], 2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+Odds ratios 
+
+```{r}
+round(exp(coef(subject_control_mdl3)[11:14]), 2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+```{r}
+as.data.frame(round(exp(confint(subject_control_mdl3)[11:14,]), 2)) %>%
+  remove_rownames()
+```
+
+Threshold coefficients 
+
+```{r}
+as.data.frame(round(summary(subject_control_mdl3)$coefficients[1:10,c("Estimate", "Std. Error")], 2))
+```
+
+```{r}
+tab_model(subject_control_mdl3)
+```
+
+```{r}
+tbl_regression(subject_control_mdl3)
+```
+
+### Comparing fit of the three models 
+
+```{r}
+AIC(subject_control_mdl1, subject_control_mdl2, subject_control_mdl3)
+```
+
+# Control attempts - Number of interventions 
+
+```{r}
+round_intervention <- round_df1 %>%
+  filter(phase == "test") %>%
+  mutate(
+    upi = as.factor(upi)
+  ) %>%
+  full_join(counterfactual_count %>%
+              filter(phase == "Training") %>%
+              select(-phase), by = "upi")
+
+round_intervention_mdl_data <- round_intervention %>%
+  mutate(
+    interventions_z = scale(interventions)[,1],
+    age_z = scale(age)[,1],
+    control = fct_relevel(control, "high"),
+    reward = fct_relevel(reward, "high"),
+  )
+```
+
+## Intervention models
+
+```{r}
+round_interventions_mdl1 <- lmer(interventions_z ~ Detrimental + Inconsequential + Necessary + Redundant + (1 | upi), data = round_intervention_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(round_interventions_mdl1, ci_method="kr")
+```
+
+```{r}
+round_interventions_mdl2 <- lmer(interventions_z ~ (Detrimental + Inconsequential + Necessary + Redundant) * causal_identified  + (1 | upi), data = round_intervention_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(round_interventions_mdl2, ci_method="kr")
+```
+
+```{r}
+round_interventions_mdl3 <- lmer(interventions_z ~ Detrimental + Inconsequential + Necessary + Redundant + age_z + trackpad + pre_control + causal_identified + hope_scale + (1 | upi), data = round_intervention_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(round_interventions_mdl3, ci_method="kr")
+```
+
+```{r}
+round_interventions_mdl4 <- lmer(interventions_z ~ (Detrimental + Inconsequential + Necessary + Redundant) * reward * control + (1 | upi), data = round_intervention_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(round_interventions_mdl4, ci_method="kr")
+```
+
+```{r}
+AIC(round_interventions_mdl1, round_interventions_mdl3, round_interventions_mdl4)
+```
+
+```{r}
+anova(round_interventions_mdl1, round_interventions_mdl3)
+```
+
+
+```{r fig.height=10}
+round_interventions_mdl1_asmp <- check_model(round_interventions_mdl1) %>%
+  plot() %>%
+  wrap_plots()
+
+
+#Save as image
+# ggsave("final_figures/assumptions/interventions_mdl.png", round_interventions_mdl2_asmp, height = 17, width = 12, dpi = 600)
+```
+
+Level 1 Influential points
+
+```{r}
+suppressWarnings(round_inf1 <- hlm_influence(round_interventions_mdl1, level = 1))
+dotplot_diag(round_inf1$cooksd, cutoff = 1) + 
+  theme_minimal() +
+  labs(x = NULL, y = "Cooks Distance")
+```
+
+UPI cluster level influential points 
+
+```{r}
+suppressWarnings(round_inf2 <- hlm_influence(round_interventions_mdl1, level = "upi"))
+dotplot_diag(round_inf2$cooksd, cutoff = 1, index=round_inf2$upi) + 
+  theme_minimal() +
+  labs(x = NULL, y = "Cooks Distance")
+```
+
+
+```{r}
+tab_model(round_interventions_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          title = "Regression table for Intervention Model") 
+```
+
+```{r}
+tab_model(round_interventions_mdl3, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE)
+```
+
+## Appendix: Time step of first intervention, summary statistics and model
+
+```{r}
+intervention_timestep1 <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  filter(trial_count > 3 & (x_int == 1 | y_int == 1)) %>%
+  group_by(upi, trial_count) %>%
+  summarise(
+    timestep = min(step_counter)
+  ) 
+
+required_trials <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  filter(trial_count > 3 & (x_int == 1 | y_int == 1)) %>%
+  distinct(upi, condition, reward, control)%>%
+  crossing(trial_count = c(4:6))
+
+intervention_timestep2 <- required_trials %>%
+  left_join(intervention_timestep1, by = c("upi", "trial_count")) %>%
+  mutate(
+    timestep = ifelse(is.na(timestep), 0, timestep)
+    ) %>%
+  full_join(counterfactual_count %>%
+              filter(phase == "Training") %>%
+              select(-phase), by = "upi")
+```
+
+
+```{r}
+intervention_timestep_mdl_data <- intervention_timestep2 %>%
+  mutate(
+    timestep_z = scale(timestep)[,1],
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "high"),
+  )
+
+intervention_timestep_mdl1 <- lmer(timestep_z ~ Detrimental + Inconsequential + Necessary + Redundant + (1 | upi), data = intervention_timestep_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(intervention_timestep_mdl1, ci_method="kr")
+```
+
+```{r}
+tab_model(intervention_timestep_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          # pred.labels = c("Intercept",
+          #                 "Control: Low",
+          #                  "Reward region: Small",
+          #                 "Control * Reward"),
+          title = "Regression table for lmer model") 
+```
+
+Performing more inconsequential interventions decreased the timestep of first intervention
+
+# Success at task 
+
+```{r}
+reward_region <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  mutate( 
+    reward_region = as.integer(reward_region),
+    ) %>%
+  filter(trial_count > 3 & step_counter != 0) %>%
+  group_by(upi, trial_count, reward, control) %>%
+  summarise(
+    in_region = sum(reward_region)
+  ) %>%
+  full_join(counterfactual_count %>%
+              filter(phase == "Training") %>%
+              select(-phase), by = "upi") %>%
+  ungroup() 
+```
+
+### Regressing rewarded timesteps on intervention types 
+
+```{r}
+reward_region_mdl_data <- reward_region %>%
+  mutate(
+    in_region_z = scale(in_region)[,1],
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "high"),
+  )
+
+reward_region_mdl1 <- lmer(in_region_z ~ Detrimental + Inconsequential + Necessary + Redundant + (1 | upi), data = reward_region_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(reward_region_mdl1, ci_method="kr")
+```
+
+```{r}
+tab_model(reward_region_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          # pred.labels = c("Intercept",
+          #                 "Control: Low",
+          #                  "Reward region: Small"),
+          title = "Regression table for lmer model") 
+```
+
+Observing successful (necessary and redundant) interventions in training phase improves performance in test phase.
+
+# Succesful interventions in test phase
+
+```{r}
+successful_intervention <- trial_df1 %>%
+  group_by(upi, trial_count) %>%
+  mutate(
+    reward_region_lead = lead(reward_region),
+    z_lead = lead(z_val),
+    intervention = x_int + y_int,
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control")
+  ) %>%
+  filter(step_counter != 0 
+         # & step_counter != 30
+         ) %>%
+  ungroup() %>%
+  mutate(
+    reward_region_lead = ifelse(is.na(reward_region_lead), 0, reward_region_lead),
+    z_lead = ifelse(is.na(z_lead), 0, z_lead)
+  )
+
+successful_intervention_prop <- successful_intervention %>%
+  filter(str_detect(as.character(trial_count), "Test"), intervention == "1") %>%
+  group_by(condition) %>%
+  count(reward_region_lead) %>%
+  mutate(
+    proportion = n / sum(n),
+    reward_region_lead = as.factor(reward_region_lead)
+    )
+```
+
+```{r}
+successful_intervention %>%
+  filter(str_detect(as.character(trial_count), "Test"), intervention == "1") %>%
+  group_by(condition) %>%
+  count(reward_region_lead) %>%
+  mutate(
+    proportion = n / sum(n),
+    )
+```
+
+```{r}
+successful_intervention_plot <- successful_intervention_prop %>%
+  ggplot(aes(x = condition, y = proportion, fill = reward_region_lead)) +
+  geom_col(position = "stack", width = 0.75) +
+  # geom_hline(yintercept = 0.25, linetype = "dashed", color = "black", size = 0.8, alpha = 0.4) +
+  geom_text(aes(label = paste0(round(proportion, 3) * 100, "%")),
+            size = 4, 
+            position = "stack", 
+            vjust = 2, 
+            color = ifelse(successful_intervention_prop$reward_region_lead == "1", 'black', 'white')) +
+  scale_fill_manual("reward_region_lead",
+                    values = c("0" = "#ff6c3b",
+                               "1" = "#7ad658"),
+                    labels=c("0" = "Unsuccessful",
+                             "1" = "Successful"),
+                    name = NULL) +
+  labs(x = NULL, y = "Proportion", title = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = c("Low Reward Low Control" = "Low Control\nSmall Reward Region\n(n = 947)", "Low Reward High Control" = "High Control\nSmall Reward Region\n(n = 1476)", "High Reward Low Control" = "Low Control\nLarge Reward Region\n(n = 1298)", "High Reward High Control" = "High Control\nLarge Reward Region\n(n = 1340)")) +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )  
+
+successful_intervention_plot
+```
+
+
+## Successful intervention model 
+
+```{r}
+successful_intervention_data <- successful_intervention %>%
+  filter(intervention == 1) %>%
+  mutate(
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "high"),
+  ) %>%
+  full_join(counterfactual_count %>%
+              filter(phase == "Training") %>%
+              select(-phase), by = "upi")
+
+successful_intervention_mdl1 <- glmer(reward_region_lead ~ Detrimental + Inconsequential + Necessary + Redundant + (1 | upi), family = "binomial", data = successful_intervention_data)
+
+summary(successful_intervention_mdl1)
+```
+
+Estimates
+
+```{r}
+fixef(successful_intervention_mdl1) %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+SEs
+
+```{r}
+summary(successful_intervention_mdl1)$coefficients[,"Std. Error"] %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+Odds ratios 
+
+```{r}
+fixef(successful_intervention_mdl1) %>%
+  exp() %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+```{r}
+tab_model(successful_intervention_mdl1)
+```
+
+So experiencing inconsequential interventions in training rounds reduces the likelihood of producing successful interventions in test phase, whilst performing necessary and redundant interventions has the opposite effect. So performing successful interventions in the training phase carries over into the test phase. 
+
+# Causal relationship identification
+
+## Were participants able to identify a causal link? 
+
+```{r}
+counterfactual_round_count <- counterfactual_df %>%
+  mutate(
+    phase = sub(" .*", "", trial_count)
+    ) %>%
+  ungroup() %>%
+  count(upi, phase, trial_count, counterfactual) %>%
+  pivot_wider(
+    names_from = counterfactual, 
+    values_from = n
+  ) %>%
+  mutate(
+    trial_count = case_when(
+      trial_count == "Training R1" ~ 1,
+      trial_count == "Training R2" ~ 2,
+      trial_count == "Training R3" ~ 3,
+      trial_count == "Test R1" ~ 4,
+      trial_count == "Test R2" ~ 5,
+      trial_count == "Test R3" ~ 6),
+    trial_count = as.integer(trial_count)
+    ) %>%
+  complete(upi, trial_count = 1:6) %>%
+  mutate(
+    phase = ifelse(trial_count < 4, "training", "test"),
+    across(everything(), ~ replace(., is.na(.), 0))
+  )
+
+causal_identification <- round_df1 %>%
+  select(upi, round, phase, trial_count, interventions, reward, control, score, causal_identified) %>%
+  full_join(counterfactual_round_count, by = c("upi", "trial_count", "phase"))
+```
+
+## Causal identification model based on counterfactual intervention 
+
+```{r}
+causal_identification_mdl1 <- glm(causal_identified ~ Detrimental + Inconsequential + Necessary + Redundant, family = "binomial", data = causal_identification)
+
+summary(causal_identification_mdl1)
+```
+
+```{r}
+causal_identification_mdl2 <- glmer(causal_identified ~ Detrimental + Inconsequential + Necessary + Redundant + (1 | upi), family = "binomial", data = causal_identification)
+
+summary(causal_identification_mdl2)
+```
+
+# Task performance (scores in test rounds)
+
+```{r}
+performance_mdl1 <- lmer(score ~ Detrimental + Inconsequential + Necessary + Redundant + (1 | upi), data = round_intervention_mdl_data)
+
+model_parameters(performance_mdl1, ci_method="kr")
+```
+
+```{r}
+tab_model(performance_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Score"),
+          # pred.labels = c("Intercept",
+          #                 "Control: Low",
+          #                  "Reward region: Small"),
+          title = "Regression table for lmer model") 
+```
+
+
+
+

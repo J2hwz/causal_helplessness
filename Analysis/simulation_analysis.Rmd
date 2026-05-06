@@ -1,0 +1,735 @@
+---
+title: "Simulation Analysis"
+output: html_document
+date: "2025-09-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggdist)
+library(ggrain)
+library(jsonlite)
+```
+
+# Reading in simulation data for random interventions and combining 
+
+```{r}
+df1 <- read.csv("../data/control_strategy_simulated_data/random_simulation_cond1.csv")
+df2 <- read.csv("../data/control_strategy_simulated_data/random_simulation_cond2.csv")
+df3 <- read.csv("../data/control_strategy_simulated_data/random_simulation_cond3.csv")
+df4 <- read.csv("../data/control_strategy_simulated_data/random_simulation_cond4.csv")
+
+condition_df1 <- data.frame(
+  condition = c("1", "2", "3", "4"),
+  reward = c("Small Reward Region", "Small Reward Region", "Large Reward Region", "Large Reward Region"),
+  control = c("Low Control", "High Control", "Low Control", "High Control")
+  ) %>%
+  mutate(
+    condition = as.integer(condition)
+  )
+
+random_df <- rbind(df1, df2, df3, df4) %>%
+  full_join(condition_df1, by = "condition") %>%
+  mutate(
+    type = "Random interventions",
+    trial_score = total_score
+  ) %>%
+  select(-total_score)
+  
+
+rm(df1, df2, df3, df4)
+```
+
+# Reading in simulation data for no interventions and combining 
+
+```{r}
+df1 <- read.csv("../data/control_strategy_simulated_data/simulation_cond1.csv")
+df2 <- read.csv("../data/control_strategy_simulated_data/simulation_cond2.csv")
+df3 <- read.csv("../data/control_strategy_simulated_data/simulation_cond3.csv")
+df4 <- read.csv("../data/control_strategy_simulated_data/simulation_cond4.csv")
+
+no_df <- rbind(df1, df2, df3, df4) %>%
+  full_join(condition_df1, by = "condition") %>%
+  mutate(
+    type = "No interventions"
+  ) %>%
+  select(-total_score)
+
+rm(df1, df2, df3, df4)
+```
+
+# Proportion scoring by timesteps 
+
+## Random simulation
+
+
+
+# Distribution of scores in random control models by condition 
+
+```{r}
+random_df %>% 
+  ggplot(aes(x = trial_score)) +
+  geom_bar(fill = "#029cd4", color = "black") +
+  scale_x_continuous(breaks = seq(-30, 50, by = 10)) +
+  facet_grid(reward~control) +
+  labs(
+    title = "Change in scores for simulated trials with random interventions each timestep",
+  # (where interventions on X or Y across all values are equally likely)
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )
+```
+
+```{r}
+random_df %>% 
+  filter(control == "High Control") %>%
+  ggplot(aes(x = trial_score)) +
+  geom_bar(fill = "#029cd4", color = "black") +
+  scale_x_continuous(breaks = seq(-30, 50, by = 10)) +
+  facet_wrap(~graph) +
+  labs(
+    title = "Change in scores for simulated trials with random interventions each timestep",
+  # (where interventions on X or Y across all values are equally likely)
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )
+```
+
+# Distribution of scores in no control models by condition 
+
+```{r}
+no_df %>% 
+  ggplot(aes(x = trial_score)) +
+  geom_bar(fill = "#029cd4", color = "black") +
+  # scale_x_continuous(breaks = seq(-30, 50, by = 10)) +
+  facet_grid(reward~control) +
+  labs(
+    title = "Change in scores for simulated trials with no interventions performed",
+  # (where interventions on X or Y across all values are equally likely)
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )
+```
+
+```{r}
+no_df %>% 
+  filter(control == "High Control") %>%
+  ggplot(aes(x = trial_score)) +
+  geom_bar(fill = "#029cd4", color = "black") +
+  # scale_x_continuous(breaks = seq(-30, 50, by = 10)) +
+  facet_wrap(~graph) +
+  labs(
+    title = "Change in scores for simulated trials with no interventions performed",
+  # (where interventions on X or Y across all values are equally likely)
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )
+```
+
+# Comparing to actual participant performance
+
+## Data cleaning of participant scores
+
+```{r}
+df_raw <- read.csv("../data/exp_data/diss_data_prolific.csv") %>%
+  mutate(
+    date = format(as.Date(date, format = "%d/%m/%Y"), "%Y-%m-%d")
+  )
+
+# Subject level data
+subject_raw1 <- df_raw %>%
+  filter(date > as.Date("2025-03-23")) %>%
+  rowwise() %>%
+  do(data.frame(fromJSON(.$subject, flatten = T))) %>%
+  ungroup()
+
+# Condition information 
+condition_df2 <- data.frame(
+  condition = c("P", "Q", "R", "S"),
+  reward = c("Small Reward Region", "Small Reward Region", "Large Reward Region", "Large Reward Region"),
+  control = c("Low Control", "High Control", "Low Control", "High Control")
+)
+
+# Causal query information (answers)
+causal_query_answers <- read.csv("causal_query_answers.csv")
+
+# Trial level data
+upi_data <- subject_raw1 %>%
+  select(-c(cond_order, counter_balance_order, causal_query_structure, causal_query_relationship)) %>%
+  distinct() %>%
+  select(upi, condition) %>%
+  distinct() %>%
+  map_df(~rep(.x, each = 186))
+
+trial_raw <- df_raw %>% 
+  filter(date > as.Date("2025-03-23")) %>%
+  rowwise() %>%
+  do(data.frame(fromJSON(.$results, flatten = T))) %>%
+  ungroup() %>%
+  cbind(upi_data) %>%
+  unite("round", c(graph, cb_group), sep = "_", remove = FALSE) %>% # False so that counterbalance can be tracked
+  rename(
+    reward_region = reward # Rename this to not confuse with reward prevalence column in condition_df
+  ) %>%
+  full_join(condition_df2, by = "condition") %>%
+  mutate(
+    trial_count = as.integer(trial_count),
+    trial_count = trial_count + 1, # Increase round count by one so that it starts from 1 instead of 0
+    condition = factor(condition, # Add condition labels 
+                       levels = c("P", "Q", "R", "S"), 
+                       labels = c("Low Reward Low Control", "Low Reward High Control", 
+                                  "High Reward Low Control", "High Reward High Control"))
+  ) 
+
+# Lost focus on trials for more than 10 timesteps 
+no_focus <- trial_raw %>%
+  group_by(upi) %>%
+  count(has_focus) %>%
+  filter(has_focus == 0 & n > 10) 
+
+# Took more than 40 minutes to complete the experiment 
+subject_times_raw <- subject_raw1 %>%
+  distinct(upi, start_time, end_time) %>%
+  mutate(
+    start = as.POSIXct(start_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    end = as.POSIXct(end_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    time = as.numeric(difftime(end, start, units = "mins"))
+  ) 
+
+long_time <- subject_times_raw %>%
+  filter(time > 40) 
+  
+
+
+# Participants who concentrated
+subject_concentration <- subject_raw1 %>%
+  select(-c(cond_order, counter_balance_order, causal_query_structure, causal_query_relationship)) %>%
+  distinct() %>%
+  # Filter out participants who had 3 or more false attempts on the task, self-reported being distracted, lost focus (on another tab or application) during the experiment, and took longer than 40 minutes to complete the experiment
+  filter(false_attempts < 3 & concentration == "yes" & upi != as.character(no_focus[1,1]) & !(upi %in% long_time$upi)) %>%
+  select(upi)
+
+trial_df <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  group_by(upi, trial_count, round, condition, reward, control) %>%
+  summarise(
+    interventions = max(cum_int),
+    score = max(cum_trial_score) - max(cum_int),
+    successful_reward = sum(reward_region) 
+  ) %>%
+  ungroup() %>%
+  rename(
+    trial_score = score
+  ) %>%
+  mutate(
+    type = "Experiment results"
+  )
+  
+rm(df_raw, subject_raw1, condition_df2, causal_query_answers, upi_data, trial_raw, no_focus, subject_times_raw, long_time, subject_raw1, subject_concentration)
+```
+
+```{r}
+trial_df %>%
+  mutate(
+    phase = ifelse(trial_count %in% 1:3, "training", "test")
+    ) %>%
+  group_by(phase, condition) %>%
+  summarise(
+    mean_value = mean(trial_score, na.rm = TRUE),
+    sd_value = sd(trial_score, na.rm = TRUE),
+    n = n()
+  )
+```
+
+
+
+## Participant scoring distributions by condition
+
+```{r}
+trial_df %>% 
+  filter(trial_count < 4) %>%
+  ggplot(aes(x = trial_score)) +
+  geom_density(fill = "#029cd4", color = "black") +
+  # scale_x_continuous(breaks = seq(-30, 50, by = 10)) +
+  facet_grid(reward~control) +
+  labs(
+    title = "Actual change in score (training rounds)",
+  # (where interventions on X or Y across all values are equally likely)
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )
+```
+
+```{r}
+trial_df %>% 
+  filter(trial_count > 3) %>%
+  ggplot(aes(x = trial_score)) +
+  geom_density(fill = "#029cd4", color = "black") +
+  # scale_x_continuous(breaks = seq(-30, 50, by = 10)) +
+  facet_grid(reward~control) +
+  labs(
+    title = "Actual change in score (test rounds)",
+  # (where interventions on X or Y across all values are equally likely)
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )
+```
+
+# Combining graphs together to compare
+
+```{r}
+rbind(
+  select(subset(trial_df, trial_count < 4), trial_score, type, reward, control),
+  # select(no_df, trial_score, type, reward, control),
+  select(random_df, trial_score, type, reward, control)
+) %>%
+ggplot(aes(x = trial_score, fill = type)) +
+  
+  geom_density(adjust = 3.5, alpha = 0.5, color = "black") +
+  
+  # geom_density(data = no_df1, aes(x = trial_score), adjust = 3, fill = "#C2A9A1", alpha = 0.5, color = "black") +
+  
+  # geom_density(data = subset(trial_df, trial_count < 4), aes(x = trial_score), fill = "#029cd4", alpha = 0.5, color = "black") +
+  
+  scale_y_continuous(
+    limits = c(0, 0.1),
+    breaks = seq(0, 0.1, by = 0.02)
+    ) +
+  
+  scale_x_continuous(breaks = seq(-30, 120, by = 30)) +
+  
+  facet_grid(reward~control) +
+  labs(
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "white", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),   # Legend text size
+    legend.title = element_blank()
+    )
+```
+
+# Combining graphs together to compare (only simulations )
+
+```{r}
+plot1 <- rbind(
+  select(no_df, trial_score, type, reward, control),
+  select(random_df, trial_score, type, reward, control)
+) %>%
+ggplot(aes(x = trial_score, fill = type)) +
+  
+  geom_bar(adjust = 3.5, alpha = 0.5, color = "black", position = "identity") +
+  
+  # geom_density(data = no_df1, aes(x = trial_score), adjust = 3, fill = "#C2A9A1", alpha = 0.5, color = "black") +
+  
+  # geom_density(data = subset(trial_df, trial_count < 4), aes(x = trial_score), fill = "#029cd4", alpha = 0.5, color = "black") +
+  
+  # scale_y_continuous(
+  #   limits = c(0, 0.1),
+  #   breaks = seq(0, 0.1, by = 0.02)
+  #   ) +
+  
+  scale_x_continuous(breaks = seq(-20, 120, by = 20)) +
+  
+  scale_fill_manual(
+    name = NULL,
+    values = c("No interventions" = "#029cd4", "Random interventions" = "#d9bc00")
+  ) +
+  
+  facet_grid(reward~control) +
+  labs(
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),   # Legend text size
+    legend.title = element_blank()
+    )
+
+plot1
+```
+
+```{r}
+rbind(
+  select(no_df, trial_score, type, reward, control),
+  select(random_df, trial_score, type, reward, control)
+) %>%
+  group_by(type, reward, control) %>%
+  summarise(
+    mean = mean(trial_score),
+    sd = sd(trial_score)
+  )
+```
+
+
+
+
+## Raincloud plot
+
+```{r}
+rbind(
+  select(subset(trial_df, trial_count < 4), trial_score, type, reward, control),
+  select(no_df, trial_score, type, reward, control),
+  select(random_df, trial_score, type, reward, control)
+) %>%
+ggplot(aes(x = type, y = trial_score, fill = type)) +
+  
+  geom_rain(alpha = .5) +
+  
+  # stat_halfeye(
+  #   # adjust bandwidth
+  #   adjust = 0.5,
+  #   # move to the right
+  #   justification = -0.2,
+  #   # remove the slub interval
+  #   .width = 0,
+  #   point_colour = NA
+  # ) +
+  # 
+  # geom_boxplot(
+  #   width = 0.12,
+  #   # removing outliers
+  #   outlier.color = NA,
+  #   alpha = 0.5
+  # ) +
+  
+  # scale_y_continuous(
+  #   limits = c(0, 0.1),
+  #   breaks = seq(0, 0.1, by = 0.02)
+  #   ) +
+  
+  # scale_x_continuous(breaks = seq(-30, 120, by = 30)) +
+  
+  facet_grid(reward~control) +
+  labs(
+    title = "Comparison of score distributions between experimental results with no or random control (training rounds)",
+  # (where interventions on X or Y across all values are equally likely)
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),   # Legend text size
+    legend.title = element_blank()
+    ) +
+  scale_fill_brewer(palette = 'Dark2')
+```
+
+TODO: tidy up raincloud plot 
+
+# Comparing test round results with regained control
+
+```{r}
+random_df2 <- random_df %>%
+  filter(control == "High Control") %>%
+  mutate(
+    control = "Low Control"
+  ) %>%
+  rbind(subset(random_df, control == "High Control"))
+
+no_df2 <- no_df %>%
+  filter(control == "High Control") %>%
+  mutate(
+    control = "Low Control"
+  ) %>%
+  rbind(subset(no_df, control == "High Control"))
+
+simulated_scores <- rbind(
+  # select(no_df2, trial_score, type, reward, control),
+  select(random_df2, trial_score, type, reward, control),
+  select(subset(trial_df, trial_count > 3), trial_score, type, reward, control)
+  ) 
+
+ggplot() +
+  geom_density(data = simulated_scores, aes(x = trial_score, fill = type), adjust = 1, alpha = 0.5, color = "black") +
+
+  scale_x_continuous(breaks = seq(-40, 120, by = 20)) +
+  
+  facet_grid(reward~control) +
+  labs(
+    x = "Points Scored",
+    y = NULL
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "white", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),   # Legend text size
+    legend.title = element_blank()
+    )
+```
+
+```{r}
+simulated_scores %>%
+  group_by(type, reward, control) %>%
+  summarise(
+    mean = mean(trial_score),
+    sd = sd(trial_score),
+    median = median(trial_score)
+  )
+```
+
+
+
+
+```{r}
+trial_df %>%
+  filter(control == "Low Control", reward == "Large Reward Region", trial_count > 3) %>%
+  pull(trial_score) %>%
+  var()
+
+no_df %>%
+  filter(control == "Low Control", reward == "Large Reward Region") %>%
+  pull(trial_score) %>%
+  var()
+```
+
+
+# Using t-tests to compare participant performance to random and no control models 
+
+Welsh test examples comparing high control and large reward region conditions to random and no control models in the training phase. 
+
+```{r}
+t.test(
+  trial_df %>%
+    filter(control == "High Control", reward == "Large Reward Region", trial_count < 4) %>%
+    pull(trial_score),
+  
+  no_df %>%
+    filter(control == "High Control", reward == "Large Reward Region") %>%
+    pull(trial_score),
+  
+  var.equal = FALSE
+)
+```
+
+```{r}
+t.test(
+  trial_df %>%
+    filter(control == "High Control", reward == "Large Reward Region", trial_count < 4) %>%
+    pull(trial_score),
+  
+  random_df %>%
+    filter(control == "High Control", reward == "Large Reward Region") %>%
+    pull(trial_score),
+  
+  var.equal = FALSE
+)
+```
+
+Now repeat that process for all condition X simulation X phase combinations. Test phase only has comparisons to high control simulations for both large and small reward regions. 
+
+```{r}
+condition_df2 <- condition_df1 %>%
+  crossing(simulation = c("no", "random")) %>%
+  crossing(phase = c("training", "test"))
+
+results <- vector("list", nrow(condition_df2))  # empty list to store results
+
+for (i in 1:nrow(condition_df2)) {
+  row <- condition_df2[i, ]   # extract the i-th row as a 1-row dataframe
+  
+  # Access values like this:
+  control1 <- row$control
+  reward1 <- row$reward
+  simulation <- row$simulation
+  phase <- row$phase
+  
+  if (phase == "training") {
+    
+    df1 <- trial_df %>%
+        filter(control == control1, reward == reward1, trial_count < 4) %>%
+        pull(trial_score)
+    
+    df2 <- get(paste0(simulation, "_df")) %>%  # Merge simulation with _df and call the subsequent object 
+        filter(control == control1, reward == reward1) %>%
+        pull(trial_score)
+    
+  } else {
+    
+    df1 <- trial_df %>%
+      filter(control == control1, reward == reward1, trial_count > 3) %>%
+      pull(trial_score)
+      
+    df2 <- get(paste0(simulation, "_df2")) %>%  # Merge simulation with _df2 and call the subsequent object 
+      filter(control == control1, reward == reward1) %>%
+      pull(trial_score)
+  }
+  
+  test_res <- t.test(df1, df2, var.equal = FALSE, alternative = "two.sided")
+  
+  # store key results in a list
+  results[[i]] <- data.frame(
+    t_stat = test_res$statistic,
+    p_value = test_res$p.value,
+    df = test_res$parameter,
+    mean_x = test_res$estimate[1],
+    sd_x = sd(df1),
+    # var_x = var(df1),
+    mean_y = test_res$estimate[2],
+    sd_y = sd(df2)
+    # var_y = var(df2)
+  )
+}
+
+t_test_results <- bind_cols(condition_df2, bind_rows(results)) %>%
+  mutate(
+    p_value = ifelse(p_value < 0.001,
+                      "< .001",
+                      sprintf("%.3f", p_value))
+  )
+```
+
+# Assumption checking: Bootstrap means and t-statistics from trial data
+
+TODO: Only done for large reward region and high control condition, pooled across training and test 
+
+```{r}
+set.seed(1115)
+nsim <- 100000 # number of new datasets
+boot_mean <- rep(0.0,nsim) # initialize a vector to store the means in the new datasets
+
+trial_highcontrol_largereward <- trial_df %>%
+  filter(
+    reward == "Large Reward Region",
+    control == "High Control"
+  )
+
+for(i in 1:nsim) { # iterate for each bootstrap sample
+  y <- trial_highcontrol_largereward[sample(1:nrow(trial_highcontrol_largereward),size=nrow(trial_highcontrol_largereward),replace=TRUE),]$trial_score # sample data
+  boot_mean[i] <- mean(y) # compute mean and store it in an element of boot_mean
+}
+
+ggplot(data.frame(mean=boot_mean), aes(x=mean)) + geom_histogram(binwidth=0.5) + 
+  stat_function(fun = function(x) dnorm(x, mean = mean(boot_mean), sd = sd(boot_mean)) * 0.5 * nsim, linetype=2) + ylab("count")
+```
+
+```{r}
+set.seed(2231)
+nsim <- 100000 # number of new datasets
+boot_t <- rep(0.0,nsim)
+s_mean <- mean(trial_highcontrol_largereward$trial_score)
+y <- matrix(trial_highcontrol_largereward[sample(1:nrow(trial_highcontrol_largereward),size=nsim*nrow(trial_highcontrol_largereward),replace=TRUE),]$trial_score,ncol=nsim)
+boot_t <- apply(y, MARGIN=2, FUN=function(x) t.test(x, mu=s_mean)$statistic)
+
+ggplot(data.frame(t=boot_t), aes(x=t)) + geom_histogram(binwidth=.1) +
+  stat_function(fun = function(x) dt(x, df = nrow(trial_highcontrol_largereward) - 1) * .1 * nsim, linetype=2) + ylab("count")
+```
+
+
+```{r}
+t_test_results2 <- t_test_results %>%
+  select(-c(9:12))
+```
+
+
+
+

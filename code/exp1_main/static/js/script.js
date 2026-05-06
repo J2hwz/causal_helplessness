@@ -1,0 +1,1487 @@
+//------------------------ Variables ------------------------//
+
+// HTML
+var ins_pages = ['ins_1','ins_2','ins_3','ins_4','ins_5','ins_6','ins_7','ins_8','ins_9','ins_10','ins_11','ins_12','ins_13'];
+var ins_position = 0;
+
+// Participant data
+var subject_data = {};
+var trial_data = {};
+var causal_query_data = {};
+var pre_control;
+var pre_difficulty;
+var post_control;
+var post_difficulty;
+var false_attempts = 0;
+
+var upi; // Unique personal/participant identifier
+var proid; // Prolific ID
+var start_time = new Date();
+
+// Trial variables 
+var n_trials = 6;
+var order_all = [1,2,3,4,5,6]; 
+var n_interventions = 0
+
+// Counterbalance variables
+var counter_balance = ["A", "A"]; // CHANGE THIS
+var counter_balance_order = [];
+
+// Condition variables 
+var condition;
+var conditions = ["P", "Q", "R", "S"];
+
+// Task variables
+var time_step = 2500; // Decided on 2500, with 30 time steps 
+var timeout = 30; // Maximum number of steps per trial
+var trial_score = 0; // Score for each trial (successful control)
+var total_score = 10; // Start with 10 so they can make at least 10 interventions without going into the negative
+
+// Slider variables: Whether or not x was clicked during a time step
+var xclicked = false; 
+var yclicked = false; 
+var zclicked = false;
+
+// Slider variables: Whether or not x was held from the previous time step
+var xheld = false; 
+var yheld = false;
+var x = 0;
+var y = 0;
+var z = 0;
+
+// Chart variables
+var reward_centre = 50; // Centre of shaded reward region
+var reward_width; // 1/2 width of shaded reward region
+var shade_colour = 'rgb(157, 212, 55, .5)';
+var n_datapoints = 15; // Maximum number of datapoints to be plotted
+
+// OU network variables 
+var xHist = [0]; // List of values X (int)
+var yHist = [0]; // List of values Y (int)
+var zHist = [0]; // List of values Z (int)
+
+var x_beta, y_beta, z_beta; // Beta values for OU process
+
+var sigma; // Amount of noise added to system                     
+var theta = 0.8; // How sharply the values revert to the mean (or value attached to the cause/s) [omega parameter in OU equations in dissertation]
+var beta_spread; // Whether or not the beta values are spread out across a uniform distribution
+var causes = {
+    'x': [0,0,0],
+    'y': [0,0,0],
+    'z': [0,0,0]
+}
+
+// Option for beta_spread: 1 for distribution only if interventions, 2 for uniform distribution for all connection weights
+var beta_spread_option = 2;
+
+// Causal Query variables
+var selected_structure = 0; // To track selected structure for each trial
+
+// Causal graph presets [theta parameters in the dissertation]
+var presets = {
+    'Reg': {
+        'x': [0, 0, 0],
+        'y': [0, 0, 0],
+        'z': [1, -1, 0]
+    },
+    'Inv': {
+        'x': [0, 0, 0],
+        'y': [0, 0, 0],
+        'z': [-1, 0, 0]
+    },
+    'Common_2': {
+        'x': [0, 0, 0],
+        'y': [-1, 0, 0],
+        'z': [-1, 1, 0]
+    },
+    'Common_2_B': {
+        'x': [0, -1, 0],
+        'y': [0, 0, 0],
+        'z': [1, -1, 0]
+    },
+    // 'Chain_2': { // This one for testing only
+    //     'x': [0, 0, 0],
+    //     'y': [0, 0, 0],
+    //     'z': [0, 0, 0]
+    // },
+    'Chain_2': { 
+        'x': [0, -1, 0],
+        'y': [0, 0, 0],
+        'z': [-1, 0, 0]
+    },
+    'Chain_2_B': {
+        'x': [0, 0, 0],
+        'y': [-1, 0, 0],
+        'z': [0, -1, 0]
+    },
+    'Common_3': {
+        'x': [0, 1, 0],
+        'y': [0, 0, 0],
+        'z': [-1, -1, 0]
+    },
+    'Common_3_B': {
+        'x': [0, 0, 0],
+        'y': [1, 0, 0],
+        'z': [-1, -1, 0]
+    },
+    'ChainFeed_5': {
+        'x': [0, -1, 1],
+        'y': [0, 0, 0],
+        'z': [-1, 0, 0]
+    },
+    'ChainFeed_5_B': {
+        'x': [0, 0, 0],
+        'y': [-1, 0, 1],
+        'z': [0, -1, 0]
+    },
+    'ChainFeed_2': {
+        'x': [0, 0, 1],
+        'y': [0, 0, 0],
+        'z': [-1, -1, 0]
+    },
+    'ChainFeed_2_B': {
+        'x': [0, 0, 0],
+        'y': [0, 0, 1],
+        'z': [-1, -1, 0]
+    },
+    'CommonFeed_1': {
+        'x': [0, -1, -1],
+        'y': [0, 0, 0],
+        'z': [-1, -1, 0]
+    },
+    'CommonFeed_1_B': {
+        'x': [0, 0, 0],
+        'y': [-1, 0, -1],
+        'z': [-1, -1, 0]
+    }
+}
+
+// ---------------- Main navigation functions ---------------- //
+
+// This function runs when the page loads, shows/hides sections of the html code
+function start() {
+    $('#consent').show();
+    $('#experiment-trial').hide();
+    $('#trial_score').hide();
+    $('#end_round_summary').hide();
+    $('#hope_scale').hide();
+    $('#demographics_debrief').hide();
+    $('#thank_you').hide();
+    
+    // Buttons for testing (skip explanations)
+    $('#straight_to_task').click(function () { 
+        goto_task();
+    }); 
+
+    $('#straight_to_scale').click(function() {
+        $('#consent').hide();
+        $('#hope_scale').show();
+    });
+
+    $('#straight_to_demographics').click(function () { 
+        $('#consent').hide();
+        $('#demographics_debrief').show();
+    }); 
+
+    // Create upi 
+    upi = make_upi();
+
+    // Hide all instruction pages
+    for (var i=0; i<ins_pages.length; i++) {
+        $('#'+ins_pages[i]).hide();
+    }
+
+    // Move on from consent form
+    $('#done_consent').click(function() {
+        $('#consent').hide();
+        $('#ins_1').show();
+    });
+
+    // Assign action to all instruction buttons
+    $('.ins_btn').click(function() {
+        ins_position += 1;
+        $('#'+ins_pages[ins_position-1]).hide();
+        $('#'+ins_pages[ins_position]).show();
+    });
+
+    // Listen for completion of instruction video
+    $('#instruction_video').on('ended', function() {
+        $('#continue_video').show();
+    });
+
+    $('#comp_check').click(function() {
+        comp_checker();
+    });
+
+    setup_task();
+
+    // Randomise hope scale questions
+    randomise_scale();
+
+    // Hide buttons initially
+    $('#done_consent').hide();
+    $('#continue_video').hide();
+    $('#comp_check').hide();
+    $('#done_round').hide();
+    $('#done_scale').hide();
+    $('#done_debrief').hide();
+
+    // Listen to whether prolific ID is entered 
+    $('.get_proid').on('input', function() {
+        prolific_ID_checker();
+    });
+
+    // Listen to whether all comprehension questions are answered 
+    $('.comp_questions').change(function() {
+        comp_change_checker();
+    });
+
+    // Listen to whether all post round questions are answered
+    $('.endroundQ').change(function() {
+        endround_change_checker();
+    });
+
+    // Listen to whether all hope scale likert questions are answered 
+    $('.scale_likert').change(function() {
+        scale_change_checker();
+    });
+
+    // Listen to whether all demographics questions are answered
+    $('.posttestQ').change(function() {
+        demographics_change_checker();
+    });
+
+    $('#done_round').click(function() {
+        $('#end_round_summary').hide();
+        $('#done_round').hide();
+
+        // Save answers to end of round questions and resetting values for testing round
+        if (trial_count==2) {
+            // Record training round values
+            pre_control = $('#control').val();
+            pre_difficulty = $('#difficulty').val();
+
+            // Reset values on the questions
+            document.getElementById("control").value = "--";
+            document.getElementById("difficulty").value = "--";
+
+            // Go to next trial
+            initialise_next_trial();
+        } else {
+            // Record test round values
+            post_control = $('#control').val();
+            post_difficulty = $('#difficulty').val();
+
+            alert('You have completed all trials. You will now answer some final questions.');
+
+            // Go to hope scale questions
+            $('#end_round_summary').hide();
+            $('#hope_scale').show();
+        }   
+    });
+
+    // Finished hope scale 
+    $('#done_scale').click(function() {
+        $('#hope_scale').hide();
+        $('#demographics_debrief').show();
+    });
+
+    // Finished demographics (and study)
+    $('#done_debrief').click(function() {
+        // Replace special characters for JSON Formatting
+        var feedback_1 = $('#strategy').val();
+        var feedback_2 = $('#bugs').val();
+
+        // To prevent SQL injection (ideally should to this on the server side)
+        feedback_1 = feedback_1.replace(/\\/g, " *SLASH* "); // Replace backslashes (\) with double backslashes (\\)
+        feedback_1 = feedback_1.replace(/"/g, " *QUOTE* "); // Replace double quotation marks (") with escaped double quotation marks (\\")
+        feedback_1 = feedback_1.replace(/'/g, " *QUOTE* "); // Replace single quotation marks (') with escaped single quotation marks (\\')
+        feedback_1 = feedback_1.replace(/\n/g, " *NEWLINE* "); // Replace newline characters (\n) with a custom placeholder (*NEWLINE*)
+        feedback_2 = feedback_2.replace(/\\/g, " *SLASH* "); // Replace backslashes (\) with double backslashes (\\)
+        feedback_2 = feedback_2.replace(/"/g, " *QUOTE* "); // Replace double quotation marks (") with escaped double quotation marks (\\")
+        feedback_2 = feedback_2.replace(/'/g, " *QUOTE* "); // Replace single quotation marks (') with escaped single quotation marks (\\')
+        feedback_2 = feedback_2.replace(/\n/g, " *NEWLINE* "); // Replace newline characters (\n) with a custom placeholder (*NEWLINE*)
+
+        // Assemble subject data
+        subject_data = {
+            upi: upi,
+            proid: proid,
+            start_time: start_time,
+            end_time: new Date(),
+            condition: condition, 
+            reward_width: reward_width, 
+            sigma: sigma,
+            cond_order: order,
+            counter_balance_order: counter_balance_order,
+            score: total_score,
+            false_attempts:false_attempts,
+            causal_query_structure: causal_query_data.selected_structure,
+            causal_query_relationship: causal_query_data.selected_relationship,
+            hope1: $('input[name="scale1"]:checked').val(),
+            hope2: $('input[name="scale2"]:checked').val(),
+            hope3: $('input[name="scale3"]:checked').val(),
+            hope4: $('input[name="scale4"]:checked').val(),
+            hope5: $('input[name="scale5"]:checked').val(),
+            hope6: $('input[name="scale6"]:checked').val(),
+            hope7: $('input[name="scale7"]:checked').val(),
+            hope8: $('input[name="scale8"]:checked').val(),
+            hope9: $('input[name="scale9"]:checked').val(),
+            hope10: $('input[name="scale10"]:checked').val(),
+            hope11: $('input[name="scale11"]:checked').val(),
+            hope12: $('input[name="scale12"]:checked').val(),
+            pre_control: pre_control,
+            post_control: post_control, 
+            pre_difficulty: pre_difficulty,
+            post_difficulty: post_difficulty,
+            age: $('#age').val(),
+            gender: $('#sex').val(),
+            engagement: $('#engagement').val(),
+            trackpad: $('#mouse_trackpad').val(),
+            strategy: feedback_1, 
+            concentration: $('#concentration').val(),
+            text_bug: feedback_2 
+        }
+
+        // console.log(subject_data);
+        // console.log(trial_data);
+
+        // Upload data to server
+        save_data();
+
+        // Go to thank you slide
+        $('#demographics_debrief').hide();
+        $('#thank_you').show();
+    });
+}
+
+// Go to main task
+function goto_task() {
+    $('#consent').hide();
+    $('#experiment-trial').show();
+    $('#trial_score').hide();
+    $('#end_round_summary').hide();
+    $('#hope_scale').hide();
+    $('#demographics_debrief').hide();
+    $('#thank_you').hide();    
+
+    // Set up Experimental Conditions
+    trial = order[trial_count]; // Call the first causal graph condition 
+    // load_graph(trial); // Load the assigned condition
+    load_graph(2) // To set specific trial to be loaded
+    
+    // Update score display
+    $("#step_score_display").html("<b>Score: " + total_score + "</b>");
+}
+
+// Initial setup of the experimental task
+function setup_task() {
+
+    // Initialise the trial_count
+    trial_count = 0;
+
+    // Randomise array containing trial order
+    order = ex_randomiser(order_all);
+
+    // Randomly choose condition and setup
+    setup_condition();
+
+    // Setup slider positions 
+    set_sliders();
+
+    // Setup reward area on slider Z
+    set_reward_area();
+
+    // Setup chart and variables 
+    setup_chart();
+
+    // Setup interface logic 
+    setup_interface();
+
+    // Setup trial data 
+    trial_data = {
+        x_val: [],
+        y_val: [],
+        z_val: [],
+        x_int: [],
+        y_int: [],
+        z_int: [],
+        x_held: [],
+        y_held: [],
+        step_counter: [],
+        cum_int: [],
+        cum_total_score: [],
+        cum_trial_score: [],
+        reward: [],
+        trial_count: [],
+        graph: [],
+        cb_group: [],
+        has_focus: []
+    };
+
+    // Setup Causal Query data
+    causal_query_data = {
+        selected_structure: [],
+        selected_relationship: []
+    }
+}
+
+
+
+// -------- Functions to reset chart and sliders between trials -------- //
+
+// Load graph for each trial count 
+function load_graph(graph) {
+
+    // Counterbalancing 
+    var random_counter_balance = counter_balance[Math.floor(Math.random() * counter_balance.length)];
+    counter_balance_order.push(random_counter_balance);
+
+    if (graph == 1 && random_counter_balance == "A"){
+        update_model('Common_2');
+    } else if (graph == 2 && random_counter_balance == "A"){
+        update_model('Chain_2');
+    } else if (graph == 3 && random_counter_balance == "A"){
+        update_model('Common_3');
+    } else if (graph == 4 && random_counter_balance == "A"){
+        update_model('ChainFeed_5');
+    } else if (graph == 5 && random_counter_balance == "A"){
+        update_model('ChainFeed_2');
+    } else if (graph == 6 && random_counter_balance == "A"){
+        update_model('CommonFeed_1');
+    } else if (graph == 1 && random_counter_balance == "B"){
+        update_model('Common_2_B');
+    } else if (graph == 2 && random_counter_balance == "B"){
+        update_model('Chain_2_B');
+    } else if (graph == 3 && random_counter_balance == "B"){
+        update_model('Common_3_B');
+    } else if (graph == 4 && random_counter_balance == "B"){
+        update_model('ChainFeed_5_B');
+    } else if (graph == 5 && random_counter_balance == "B"){
+        update_model('ChainFeed_2_B');
+    } else {
+        update_model('CommonFeed_1_B');
+    }
+
+    console.log("Trial: ", trial_count, "Graph: ", graph, "Counterbalance: ", random_counter_balance);
+}
+
+// Helper: Update causal model with the selected preset 
+function update_model(preset) {
+    causes = presets[preset];
+
+    // Set Chart Label
+    setup_chart();
+}
+
+// --------------- Setup trials functions --------------- //
+
+function setup_condition() {
+    condition = conditions[Math.floor(Math.random() * conditions.length)];
+    // condition = "Q"; // For testing
+
+    if (condition == "P"){
+        // Low reward saliency, high noise (low control)
+        reward_width = 10;
+        sigma = 18;
+        beta_spread = true;
+    } else if (condition == "Q"){
+        // Low reward saliency, low noise (high control)
+        reward_width = 10;
+        sigma = 4;
+        beta_spread = false;
+    } else if (condition == "R"){
+        // High reward saliency, high noise (low control)
+        reward_width = 20;
+        sigma = 18;
+        beta_spread = true;
+    } else {
+        // High reward saliency, low noise (high control)
+        reward_width = 20;
+        sigma = 4;
+        beta_spread = false;
+    }
+
+    console.log("Condition: ", condition, "Reward width: ", reward_width, "Sigma: ", sigma, "Beta spread: ", beta_spread);
+}
+
+// Setup sliders to control variables using slider function in jquery
+function set_sliders() {
+    var generalConfig = {
+        orientation: 'vertical',
+        animate: 'fast',
+        range: "min",
+        min: -100,
+        max: 100
+    };
+
+    // Slider X
+    $("#slider-x").slider($.extend({}, generalConfig, {
+
+        create: function(event, ui) { // When slider is created, set its value to x 
+            $("#slider-x").slider("value", x);
+        },
+
+        slide: function(event, ui) {
+            x = parseInt($('#slider-x').slider("value"));
+            xclicked = true;
+            xheld = true;  
+            $('#slider-y').slider('disable');
+        }, 
+
+        change: function(event, ui) { // Change value of x when participant stops dragging slider i.e. slider changes value
+            x = parseInt($('#slider-x').slider("value"));
+        }, 
+
+        // When participant begins sliding the slider, disable slider y (only one slider can be used per timestep)
+        start: function(event, ui) { 
+            xclicked = true;
+            xheld = true;  
+            $('#slider-y').slider('disable');
+        },
+
+        stop: function(event, ui) {
+            $(':focus').blur();
+            xheld = false;
+        }
+
+    }));
+
+    // Slider Y
+    $("#slider-y").slider($.extend({}, generalConfig, {
+        create: function(event, ui) { // When slider is created, set its value to x 
+            $("#slider-y").slider("value", y);
+        },
+
+        slide: function(event, ui) {
+            y = parseInt($('#slider-y').slider("value")); // Record value on slide with function; Slide meaning that every integer move
+            yclicked = true;
+            yheld = true;
+            $('#slider-x').slider('disable');
+        }, 
+        
+        change: function(event, ui) {
+            y = parseInt($('#slider-y').slider("value"));
+        }, 
+
+        start: function(event, ui) {
+            yclicked = true;
+            yheld = true;
+            $('#slider-x').slider('disable');
+        },
+
+        stop: function(event, ui) {
+            $(':focus').blur();
+            yheld = false;
+        }
+    }));
+
+    // Slider Z
+    $("#slider-z").slider($.extend({}, generalConfig, { // Extend function applies 
+        create: function(event, ui) {
+            $("#slider-z").slider("value", z);
+        },
+        
+        slide: function(event, ui) {
+            return false; // Make it so that participants can't interact with slider Z
+        },
+
+        change: function(event, ui) {
+            z = parseInt($('#slider-z').slider("value"));
+        },
+    }));
+
+    $("#slider-z").slider({
+        range: false
+    })
+}
+
+// Setup reward region on slider (Taken from Btesh's Dynamic Control Example)
+function set_reward_area() {
+    var rewardArea = $('<div id="reward-area" class="ui-slider-range ui-corner-all ui-widget-header"></div>')
+    // var rewardHandle = $('<span id="reward-counter-handle" class="reward-counter" style="font-family: Arial, Helvetica, sans-serif;">0</span>')
+    rewardArea.css({
+        "bottom": `${(reward_centre - reward_width + 100) * 0.5}%`,
+        "height": `${reward_width}%`,
+        "background-color": shade_colour,
+    })
+    $(`#slider-handle-z`).after(rewardArea)
+}
+
+function setup_chart() {
+    var canvas_html = "<canvas id='progress-chart'></canvas>";
+    $(".chart-container").html(canvas_html); // Replacing the chart-container div with a chart from chart.js
+    var ctx = document.getElementById("progress-chart").getContext("2d") // Fetches a 2D drawing context of the newly created canvas element
+
+    Chart.defaults.font.size = 18; // Changing default size of all fonts in the chart
+
+    chart = new Chart(ctx, {
+        // Type of chart: Line chart
+        type: "line",
+
+        // Data 
+        data: {
+            labels: [0],
+            datasets: [{
+                label: "X", // X datapoints
+                data: [0],
+                tension: 0, // Disable line smoothing
+                pointRadius: 5,
+                borderColor: 'rgb(140, 140, 255)',
+                backgroundColor: 'rgb(140, 140, 255)',
+                pointBackgroundColor: 'rgb(0, 0, 255)',
+                fill: false
+            },
+            {
+                label: "Y", // Y datapoints
+                data: [0],
+                tension: 0, // Disable line smoothing
+                pointRadius: 5,
+                borderColor: 'rgb(255, 140, 140)',
+                backgroundColor: 'rgb(255, 140, 140)',
+                pointBackgroundColor: 'rgb(255, 0, 0)',
+                fill: false
+            },
+            {
+                label: "Z", // Z datapoints
+                data: [0],
+                tension: 0, // Disable line smoothing
+                pointRadius: function(context) {
+                    var index = context.dataIndex;
+                    var value = context.dataset.data[index];
+                    var rew_min = reward_centre - reward_width;
+                    var rew_max = reward_centre + reward_width;
+
+                    if (value >= rew_min && value <= rew_max) {
+                        return 7; // Bigger radius for points inside shaded range
+                    } else {
+                        return 5; // Same point radius as X or Y otherwise
+                    }
+                },
+                borderColor: 'rgb(151, 240, 151)',
+                backgroundColor: 'rgb(151, 240, 151)',
+                pointBackgroundColor: 'rgb(30, 174, 30)',
+                fill: false
+            }
+        ]
+        },
+
+        options: {  
+            responsive: true,
+            maintainAspectRatio: false, 
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Steps',
+                    }
+                },
+                y: {
+                    suggestedMin: -100, 
+                    suggestedMax: 100,
+                    beginAtZero: false,
+                    ticks: {
+                        stepSize: 20,
+                        autoSkip: false
+                    }
+                },
+            },
+
+            animations: {
+                x: { duration: 800 }, // X-axis animation duration
+                y: { duration: 0 }   // Y-axis animation duration
+            },
+
+            plugins: {    
+                // Adding shading for reward area 
+                annotation: {
+                    annotations: {
+                        box1: {
+                            type: 'box',
+                            yMin: reward_centre - reward_width,
+                            yMax: reward_centre + reward_width,
+                            borderWidth: 0,
+                            backgroundColor: shade_colour,
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+function setup_interface() {
+
+    // Sliders
+    $('#slider-x').slider('disable');
+    $('#slider-y').slider('disable');
+    $('#slider-z').slider('disable');
+
+    // Buttons
+    $('#view_score_button').hide();
+
+    // Ensure step count reflects the one given by the variable 
+    $("#step_countdown_display").html("Steps: 0/" + timeout);
+
+    //Setup start button
+    $('#start_button').click(function () {
+        // console.log('Game began');
+        $('#start_button').hide();
+        $('#slider-x').slider('enable');
+        $('#slider-y').slider('enable');
+        $('#slider-z').slider('enable');
+
+        count = 0;
+        
+        // Record data - 0th Step
+        record(x, y, z, xclicked, yclicked, zclicked, xheld, yheld, 0, 0, total_score, trial_score, false, trial_count, trial, counter_balance_order[trial_count], 1)
+        
+        // Main game loop is here
+        interval = setInterval(step, time_step)
+    });
+
+    // If view score button is clicked, go to trial_score slide
+    $('#view_score_button').click(function() {
+        $('#consent').hide();
+        $('#experiment-trial').hide();
+        $('#trial_score').show();
+        $('#relationship_container').hide();
+    
+        // Calculate total score and change display
+        $("#total_score_display").html("<b>Total score: " + total_score + "</b>");
+    });
+
+    // If next trial button on the score display is clicked 
+    $('#next_trial_button').click(function() {
+        const selected_radio = document.querySelector('.causal_relationship_container input[name="relationship"]:checked');
+
+        if (selected_structure == 0 || selected_radio == null) {
+            alert('Please select both a structure and a relationship.')
+        } else {
+            // Save Causal Query Answers
+            var likert_relationship = Number(document.querySelector('.causal_relationship_container input[name="relationship"]:checked').value);
+            causal_query_data.selected_structure.push(selected_structure);
+            causal_query_data.selected_relationship.push(likert_relationship);
+            // console.log(causal_query_data);
+
+            // Reset Causal Query - Remove highlight of causal structure
+            const images = document.querySelectorAll('.image_container img');
+            images.forEach(img => img.classList.remove('selected'));
+            selected_structure = 0;
+            
+            // Remove highlight from causal relationship buttons 
+            document.getElementById('regular').disabled = true;
+            document.getElementById('inverse').disabled = true;
+            document.querySelectorAll('input[name="relationship"]').forEach(input => input.checked = false);
+
+            //Initialise New Condition or go to end of round questions 
+            if (trial_count==2) {
+                // Go to end of round questions 
+                $('#trial_score').hide();
+                $('#end_round_summary').show();
+
+                // Update total points scored on the end of round slide
+                $("#end_round_score").html("<b>You have scored a total of " + total_score + " points.</b>");
+            } else if (trial_count==5) {
+                // Go to end of round questions 
+                $('#trial_score').hide();
+                $('#end_round_summary').show();
+
+                // Update total points and wording
+                $('#end_round_header').html("End of Test Rounds");
+                $('#end_round_1').html("You have now finished all test rounds.");
+                $("#end_round_score").html("<b>You have scored a total of " + total_score + " points.</b>");
+                $('#end_round_2').html("Please answer the following questions about the <b>test</b> rounds:");
+            } else {
+                initialise_next_trial();
+            }
+        }
+    });
+}
+
+// Main game loop
+function step() {
+            
+    // Advance Count
+    count = count + 1;
+
+    // console.log(count);
+
+    // Advance CDC Task while count <= timeout
+    if (count <= timeout){
+
+        // Step of OU process
+        ouNetwork();
+
+        // Step in trial for data recording purposes 
+        var new_step = count;
+
+        // Visualise data on chart  
+        add_data(chart, new_step, [x, y, z]);
+
+        // Remove data if too much is plotted here max datapoints is
+        if (chart.data.datasets[0].data.length > n_datapoints) {
+            removeData(chart);
+        }
+
+        // Update amount of interventions 
+        if (xclicked == true || yclicked == true) {
+            total_score--; // Deduct total score by 1 for each intervention 
+            n_interventions++; // Add 1 to number of interventions for this trial
+
+            $("#intervention_display").html("<b>You moved the sliders " + n_interventions + " times.</b>");
+        } else if (xheld == true || yheld == true) {
+            total_score--; // Deduct total score by 1 for each intervention 
+            n_interventions++; // Add 1 to number of interventions for this trial
+
+            $("#intervention_display").html("<b>You moved the sliders " + n_interventions + " times.</b>");
+        }
+
+        // Visualise score (increase if target in range)
+        var reward = false;
+        if (z <= (reward_centre + reward_width) && z >= (reward_centre - reward_width)) {       
+            total_score += 5; // Add 3 points to total score
+            trial_score += 5; // Keep track of amount scored during this trial
+             
+            reward = true;
+
+            $("#trial_score_display").html("<b>Points scored in previous round: " + trial_score + "</b>");
+        }
+
+        // Visualise countdown
+        // if ((timeout - count) % (1000/time_step) === 0) { // Original Code
+        if (count <= timeout) {
+            $("#step_score_display").html("<b>Score: " + total_score + "</b>");
+            $("#step_countdown_display").html("<i>Steps: " + count  + "/" + timeout + "</i>");
+        }
+        
+        // Record whether participant had the tab open or closed
+        if (document.hasFocus()) {
+            var focus = 1
+        } else {
+            var focus = 0
+        }
+
+        // Record data
+        record(x, y, z, xclicked, yclicked, zclicked, xheld, yheld, new_step, n_interventions, total_score, trial_score, reward, trial_count, trial, counter_balance_order[trial_count], focus);
+    }
+
+    // Set xclicked (yclicked, zclicked) to false after ouNetwork() and data recording
+    xclicked = false;
+    yclicked = false;
+    // zclicked = false;
+
+    // Enable Sliders (previous, action disabled one of the two sliders)
+    $('#slider-x').slider('enable');
+    $('#slider-y').slider('enable');
+
+    // Stop game at timeout
+    if (count > timeout){
+        //Reset Task
+        $('#slider-x').slider('disable');
+        $('#slider-y').slider('disable');
+        $('#slider-z').slider('disable');
+        $('#view_score_button').show();
+    }
+}
+
+// Add data to chart for each step
+function add_data(chart, step_count, new_data) {
+    chart.data.labels.push(round(step_count, 1)); // Add step count on x-axis
+    chart.data.datasets.forEach((dataset, index) => { // Add x, y, z data for each index in the list
+        dataset.data.push(new_data[index]);
+    });
+    // chart.update(); // Update chart with new data
+    chart.update(); 
+}
+
+// Remove old datapoints from chart if too many plotted
+function removeData(chart) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach((dataset) => {
+        dataset.data.shift();
+    });
+    chart.update();
+}
+
+//------------ OU Network Computation ------------//
+
+// Ou Network value updates
+function ouNetwork() {
+    // Logic for the OU Network
+    var $sliders = $('.slider');
+
+    // Testing OU calculations
+    var test = count;   
+    // console.log("X: " + xHist[test]);
+    // console.log("Y: " + yHist[test]);
+
+    // Compute new value for each slider 
+    $sliders.each(function(index, element) { // Do for each of the variables/sliders
+        var $slider = $(element);
+        var var_name = $slider.attr('id').slice(-1);
+        
+        var old_value = parseInt($slider.slider("value"));
+        // console.log(var_name + " Old value:" + old_value);
+
+        var new_value;
+
+        if ((var_name=='x' && xclicked==true) || (var_name=='y' && yclicked==true) || (var_name=='x' && xheld==true) || (var_name=='y' && yheld==true)) {
+            new_value = old_value; // If either x or y slider is clicked during that step, retain that value, else apply ou increment on other values
+        } else {
+            mean_attractor = attractor(var_name, causes);
+            new_value = ouIncrement(var_name, mean_attractor); // ouIncrement(old_value, sigma, dt, theta, mean_attractor);
+        }
+
+        // No values above 100 or below -100
+        if (new_value > 100) {
+            new_value = 100;
+        } else if (new_value < -100) {
+            new_value = -100;
+        } 
+
+        // console.log(var_name + " New value:" + new_value);
+        $slider.slider("value", new_value);
+    })
+}
+
+// Helper: Compute attractor value 
+function attractor(variable_name, causes) {
+    var coefs = causes[variable_name];
+    var last_step = count; 
+
+    // console.log(yHist[last_step]);
+
+    // Generate random values for variables with interventions in no control condition
+    if (beta_spread == true && beta_spread_option == 1) {
+        // Update first value of coefs only if x has been intervened on
+        if (xclicked == true || xheld == true) { 
+            x_beta = generateRandomCoefficient(coefs[0]);
+        } else {
+            x_beta = coefs[0];
+        }
+
+        // Update second value of coefs only if y has been intervened on
+        if (yclicked == true || yheld == true) { 
+            y_beta = generateRandomCoefficient(coefs[1]);
+        } else {
+            y_beta = coefs[1];
+        }
+
+        z_beta = coefs[2];
+    } else if (beta_spread == true && beta_spread_option == 2) {
+        x_beta = generateRandomCoefficient(coefs[0]);
+        y_beta = generateRandomCoefficient(coefs[1]);
+        z_beta = generateRandomCoefficient(coefs[2]);
+    } else {
+        x_beta = coefs[0];
+        y_beta = coefs[1];
+        z_beta = coefs[2];
+    }
+
+    // Compute x,y,z attractor values for control condition
+    var x_att = xHist[last_step] * x_beta;
+    var y_att = yHist[last_step] * y_beta;
+    var z_att = zHist[last_step] * z_beta;
+
+    return x_att + y_att + z_att;
+}
+
+// Helper: Generate random beta coefficient for OU update in no control condition
+function generateRandomCoefficient(coef) {
+    switch (coef) {
+        case 1:
+            return rbeta(1, 3) * 1;
+            // return Math.random() + Number.EPSILON; // Random between 0 and 1 (inclusive of 0 and 1)
+        case -1:
+            return rbeta(1, 3) * -1;
+            // return Math.random() - 1 + Number.EPSILON; // Random between -1 and 0 (inclusive of -1 and 0)
+        default:
+            return 0; // Retain 0 if coef is 0
+    }
+}
+
+// Helper: Compute OU update for a variable
+function ouIncrement(variable_name, attractor) {
+    var last_step = count;
+
+    if (variable_name == 'x') {
+        // console.log(theta*(attractor-xHist[last_step]));
+        return xHist[last_step] + theta*(attractor-xHist[last_step]) + sigma*normalRandom();
+        // return xHist[last_step] + theta*(attractor-xHist[last_step]);
+    } else if (variable_name == 'y') {
+        // console.log(theta*(attractor-yHist[last_step]));
+        return yHist[last_step] + theta*(attractor-yHist[last_step]) + sigma*normalRandom();
+        // return yHist[last_step] + theta*(attractor-yHist[last_step]);
+    } else {
+        // console.log(theta*(attractor-zHist[last_step]));
+        return zHist[last_step] + theta*(attractor-zHist[last_step]) + sigma*normalRandom();
+        // return zHist[last_step] + theta*(attractor-zHist[last_step]);
+    }
+}
+
+// --- Data recording for plot and data base --- //
+function record(x, y, z, int_x, int_y, int_z, xheld, yheld, new_step, n_interventions, total_score, trial_score, reward, trial_count, trial, random_counter_balance, focus) {
+
+    //Graph
+    xHist.push(x);
+    yHist.push(y);
+    zHist.push(z);
+
+    //Trial Data
+    trial_data.x_val.push(x);
+    trial_data.y_val.push(y);
+    trial_data.z_val.push(z);
+    trial_data.x_int.push(+ int_x);
+    trial_data.y_int.push(+ int_y);
+    trial_data.z_int.push(+ int_z);
+    trial_data.x_held.push(+ xheld);
+    trial_data.y_held.push(+ yheld);
+    trial_data.step_counter.push(new_step);
+    trial_data.cum_int.push(n_interventions);
+    trial_data.cum_total_score.push(total_score);
+    trial_data.cum_trial_score.push(trial_score);
+    trial_data.reward.push(reward);
+    trial_data.trial_count.push(trial_count);
+    trial_data.graph.push(trial);
+    trial_data.cb_group.push(random_counter_balance);
+    trial_data.has_focus.push(focus);
+}
+
+// Function to handle image selection
+function select_structure(imageId) {
+    // Clear all image selections
+    const images = document.querySelectorAll('.image_container img');
+    images.forEach(img => img.classList.remove('selected'));
+
+    // Highlight the newly selected image
+    selected_structure = imageId;
+    document.getElementById(`img${imageId}`).classList.add('selected');
+
+    // Enable the radio buttons
+    document.getElementById('regular').disabled = false;
+    document.getElementById('inverse').disabled = false;
+
+    // Show and update the regular/inverse relationship description text
+    $('#relationship_container').show();
+
+    if (imageId == 1) {
+        $("#relationship_description").html('"X attracted Y" &nbsp; "X repelled Y"');
+    } else if (imageId == 2) {
+        $("#relationship_description").html('"Y attracted X" &nbsp; "Y repelled X"');
+    } else if (imageId == 3) {
+        $("#relationship_description").html('"X attracted Z &nbsp; "X repelled Z"');
+    } else if (imageId == 4) {
+        $("#relationship_description").html('"Z attracted X" &nbsp; "Z repelled X"');
+    } else if (imageId == 5) {
+        $("#relationship_description").html('"Y attracted Z" &nbsp; "Y repelled Z"');
+    } else {
+        $("#relationship_description").html('"Z attracted Y" &nbsp; "Z repelled Y"');
+    }
+    // Clear previous radio button selection (if any)
+    document.querySelectorAll('input[name="relationship"]').forEach(input => input.checked = false);
+}
+
+// Reset variables for next trial 
+
+function initialise_next_trial() {
+    $('#experiment-trial').show();
+    $('#trial_score').hide();
+    $('#view_score_button').hide();
+
+    //------ Reset Task Interface -----//
+    
+    // Stopping the unique interval ID
+    clearInterval(interval);
+
+    // Reseting the slider values back to 0
+    $('.slider').slider("value", 0);
+
+    // Reseting array of x, y, & z values 
+    xHist = [0];  
+    yHist = [0]; 
+    zHist = [0];
+    
+    // Reset scores and number of interventions for previous trial
+    trial_score = 0; 
+    n_interventions = 0;  
+    $("#trial_score_display").html("<b>Points scored in previous round: 0</b>");
+    $("#intervention_display").html("<b>You moved the sliders 0 times.</b>");
+
+    $('#start_button').show();
+
+    trial_count += 1;
+    
+    // Loading in causal graph of next trial
+    trial = order[trial_count];
+    // load_graph(trial);
+    load_graph(2);
+
+    // Differentiate between training and trial rounds
+    if (trial_count >= 0 && trial_count < 3) {
+        $("#trial_display").html("Training Round " + (trial_count + 1));
+        $("#trial_display_score").html("Training Round " + (trial_count + 1));
+
+        // Prompting participant
+        alert('You will now move to training round ' + (trial_count + 1) +' of 3. Remember, the connection between the sliders may be different this time.');
+    } else if (trial_count === 3) {
+        $("#trial_display").html("Test Round " + (trial_count - 2));
+        $("#trial_display_score").html("Test Round " + (trial_count - 2));
+
+        // Reverting control in test rounds for no control training groups
+        sigma = 4;
+        beta_spread = false;
+
+        // Prompting participant
+        alert(
+            'You will now continue to test round ' + (trial_count - 2) +
+            ' of 3. You will restart with 10 points again and your goal is to score as many points as possible by the end of test round 3. Remember, the connection between the sliders may be different this time. '
+        );
+        
+        
+        // Resetting score for test rounds 
+        total_score = 10;
+
+    } else if (trial_count >= 4 && trial_count < 6) {
+        $("#trial_display").html("Test Round " + (trial_count - 2));
+        $("#trial_display_score").html("Test Round " + (trial_count - 2));
+
+        // Prompting participant
+        alert('You will now move to test round ' + (trial_count - 2) +' of 3. Remember, the connection between the sliders may be different this time.');
+    } 
+
+    // Update step score to reflect total score currently 
+    $("#step_score_display").html("<b>Score: " + total_score + "</b>");
+
+    // Update step countdown
+    $("#step_countdown_display").html("Steps: 0/" + timeout);
+}
+
+// Randomise order of questions for the hope scale
+function randomise_scale() {
+    const container = document.getElementById("scale_container");
+    const divs = Array.from(container.children); // Convert NodeList to Array
+    
+    // Use your existing function to shuffle
+    const shuffledDivs = ex_randomiser(divs);
+
+    // Append shuffled divs back to container
+    shuffledDivs.forEach(div => container.appendChild(div));
+}
+
+// Prolific ID checker
+
+function prolific_ID_checker() {
+    proid = $('#proid').val();
+    if (proid.length > 0) {
+        $('#done_consent').show();
+    } else {
+        $('#done_consent').hide();
+    }
+}
+
+// COMPREHENSION CHECK
+
+function comp_checker() {
+    var comp_answers = [
+        $('#comp_q1').val(),
+        $('#comp_q2').val(),
+        $('#comp_q3').val(),
+        $('#comp_q4').val(),
+        $('#comp_q5').val()
+    ]
+
+    // Correct answers
+    correct_answers = ["true","false","true","false","true"]
+
+    // Comparing answers
+    if(comp_answers[0] == correct_answers[0] && comp_answers[1] == correct_answers[1] && comp_answers[2] == correct_answers[2] &&comp_answers[3] == correct_answers[3] && comp_answers[4] == correct_answers[4]) {
+        alert('You got everything correct! Press "start" to begin the first training round.');
+        
+        // Hide all instruction pages
+        for (var i=0; i<ins_pages.length; i++) {
+            $('#'+ins_pages[i]).hide();
+        }
+
+        // Start first trial
+        goto_task();
+    } else {
+        // If wrong, go back to start of instructions
+        alert('You answered at least one question incorrectly! Please try again.');
+
+        // Remove answers 
+        $('#comp_q1').prop('selectedIndex', 0);
+        $('#comp_q2').prop('selectedIndex', 0);
+        $('#comp_q3').prop('selectedIndex', 0);
+        $('#comp_q4').prop('selectedIndex', 0);
+        $('#comp_q5').prop('selectedIndex', 0);
+        $('#comp_check').hide();
+
+        ins_position = 0;
+        $('#'+ins_pages[0]).show();
+        $('#'+ins_pages[ins_pages.length-1]).hide();
+        false_attempts += 1;
+    }
+}
+
+
+// Ensuring all comprehension questions are completed before toggling next button
+function comp_change_checker() {
+    var comp_q = [
+        $('#comp_q1').val(),
+        $('#comp_q2').val(),
+        $('#comp_q3').val(),
+        $('#comp_q4').val(),
+        $('#comp_q5').val()
+    ]
+
+    if (comp_q[0] === "noresp" || comp_q[1] === "noresp" || comp_q[2] === "noresp" || comp_q[3] === "noresp" || comp_q[4] === "noresp") {
+        $('#comp_check').hide();
+    } else {
+        $('#comp_check').show();
+    }
+}
+
+// Ensuring all questions in end of round are completed before toggling next button
+function endround_change_checker() {
+    var round_q = [
+        $('#control').val(),
+        $('#difficulty').val(),
+    ]
+
+    if (round_q[0] === "--" || round_q[1] === "--") {
+        $('#done_round').hide();
+    } else {
+        $('#done_round').show();
+    }
+}
+
+// Ensuring all questions in hope scale section are completed before toggling next button
+function scale_change_checker() {
+    // Create an array of selected values for all scales
+    var scale_q = [...Array(12)].map((_, i) => $(`input[name="scale${i + 1}"]:checked`).val());
+
+    // Check if any scale is unanswered (undefined or empty string)
+    var incomplete = scale_q.some(value => !value);
+
+    // Show or hide 'done_scale' based on completeness
+    $('#done_scale').toggle(!incomplete);
+}
+
+// Ensuring all questions in the demographics section are completed before toggling the finish button 
+function demographics_change_checker() {
+    var dem_q = [
+        $('#age').val(),
+        $('#sex').val(),
+        $('#engagement').val(),
+        $('#mouse_trackpad').val(),
+        $('#strategy').val(),
+        $('#concentration').val()
+    ]
+
+    if (dem_q[0] === "" || dem_q[1] === "noresp" || dem_q[2] === "--" || dem_q[3] === "noresp" || dem_q[4] === "" || dem_q[5] === "noresp") {
+        $('#done_debrief').hide();
+    } else {
+        $('#done_debrief').show();
+    }
+}
+
+// Saving participant data onto the server 
+function save_data() {
+    subject_str = JSON.stringify(subject_data);
+    results_str = JSON.stringify(trial_data);
+
+    jQuery.ajax({
+        url: 'static/php/save_data.php',
+        type:'POST',
+        data:{subject:subject_str, results:results_str},
+
+        success:function(data)
+        {
+            if (data == 99) //set a error code
+            {
+                alert('AJAX FAILED');
+            } else
+            {
+                alert('Sent data to database');
+            }  
+        },
+        error:function()
+        {
+            alert('AJAX FAILED');
+        }
+    })
+}
+
+// ---------------- HELPER FUNCTIONS ---------------- //
+
+// Function to create unique participant identifier
+function make_upi() {
+    var text = "";
+    var possible = "abcdefghijklmnopqrstuvwxyz";
+
+    for(var i=0; i < 10; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+}
+
+
+// Function to randomise experimental conditions 
+function ex_randomiser(my_order){
+    var shuffledArray = my_order.slice(); // Clone the array
+
+    // Shuffle the cloned array using the Fisher-Yates algorithm
+    for (var i = shuffledArray.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var temp = shuffledArray[i];
+    shuffledArray[i] = shuffledArray[j];
+    shuffledArray[j] = temp;
+    }
+    return shuffledArray
+}
+
+
+
+// --- Normal distribution and math functions --- //
+// https://gist.github.com/bluesmoon/7925696
+
+function round(value, decimals) {
+    return Number(Math.round(value+'e'+decimals)+'e-'+decimals);}
+
+var spareRandom = null;
+
+function normalRandom() {
+	var val, u, v, s, mul;
+
+	if(spareRandom !== null)
+	{
+		val = spareRandom;
+		spareRandom = null;
+	}
+	else
+	{
+		do
+		{
+			u = Math.random()*2-1;
+			v = Math.random()*2-1;
+
+			s = u*u+v*v;
+		} while(s === 0 || s >= 1);
+
+		mul = Math.sqrt(-2 * Math.log(s) / s);
+
+		val = u * mul;
+		spareRandom = v * mul;
+	}
+	return val;
+}
+
+function normalRandomInRange(min, max) {
+	var val;
+	do
+	{
+		val = normalRandom();
+	} while(val < min || val > max);
+	
+	return val;
+}
+
+function normalRandomScaled(mean, stddev){
+	var r = normalRandom();
+
+	r = r * stddev + mean;
+
+    //return Math.round(r);
+    // returns non rounded float
+    return r;
+}
+
+function lnRandomScaled(gmean, gstddev){
+	var r = normalRandom();
+
+	r = r * Math.log(gstddev) + Math.log(gmean);
+
+	return Math.round(Math.exp(r));
+}
+
+// ---------- Beta distribution for varying connection weights (beta) ---------- //
+// Taken from https://stackoverflow.com/questions/9590225/is-there-a-library-to-generate-random-numbers-according-to-a-beta-distribution-f
+
+// javascript shim for Python's built-in 'sum'
+function sum(nums) {
+    var accumulator = 0;
+    for (var i = 0, l = nums.length; i < l; i++)
+      accumulator += nums[i];
+    return accumulator;
+}
+  
+  // In case you were wondering, the nice functional version is slower.
+  // function sum_slow(nums) {
+  //   return nums.reduce(function(a, b) { return a + b; }, 0);
+  // }
+  // var tenmil = _.range(1e7); sum(tenmil); sum_slow(tenmil);
+  
+  // like betavariate, but more like R's name
+function rbeta(alpha, beta) {
+    var alpha_gamma = rgamma(alpha, 1);
+    return alpha_gamma / (alpha_gamma + rgamma(beta, 1));
+}
+  
+// From Python source, so I guess it's PSF Licensed
+var SG_MAGICCONST = 1 + Math.log(4.5);
+var LOG4 = Math.log(4.0);
+  
+function rgamma(alpha, beta) {
+    // does not check that alpha > 0 && beta > 0
+    if (alpha > 1) {
+      // Uses R.C.H. Cheng, "The generation of Gamma variables with non-integral
+      // shape parameters", Applied Statistics, (1977), 26, No. 1, p71-74
+        var ainv = Math.sqrt(2.0 * alpha - 1.0);
+        var bbb = alpha - LOG4;
+        var ccc = alpha + ainv;
+    
+        while (true) {
+            var u1 = Math.random();
+            if (!((1e-7 < u1) && (u1 < 0.9999999))) {
+            continue;
+            }
+            var u2 = 1.0 - Math.random();
+            v = Math.log(u1/(1.0-u1))/ainv;
+            w = alpha*Math.exp(v);
+            var z = u1*u1*u2;
+            var r = bbb+ccc*v-w;
+            if (r + SG_MAGICCONST - 4.5*z >= 0.0 || r >= Math.log(z)) {
+            return w * beta;
+            }
+        }
+    } else if (alpha == 1.0) {
+        var u = Math.random();
+        while (u <= 1e-7) {
+            u = Math.random();
+        }
+        return -Math.log(u) * beta;
+    } else { // 0 < alpha < 1
+        // Uses ALGORITHM GS of Statistical Computing - Kennedy & Gentle
+        while (true) {
+            var u3 = Math.random();
+            var b = (Math.E + alpha)/Math.E;
+            var p = b*u3;
+            if (p <= 1.0) {
+                w = Math.pow(p, (1.0/alpha));
+            }
+            else {
+                w = -Math.log((b-p)/alpha);
+            }
+            var u4 = Math.random();
+            if (p > 1.0) {
+                if (u4 <= Math.pow(w, (alpha - 1.0))) {
+                break;
+                }
+            }
+            else if (u4 <= Math.exp(-w)) {
+                break;
+            }
+        }
+        return w * beta;
+    }
+}

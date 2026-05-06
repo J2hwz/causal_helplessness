@@ -1,0 +1,188 @@
+---
+title: "Counterfactual chart"
+output: html_document
+date: "2025-09-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+df <- data.frame(
+  counterfactual_type = c(
+    rep("Detrimental", 7),
+    rep("Inconsequential", 7),
+    rep("Necessary", 7),
+    rep("Redundant", 7)
+  ),
+  variable = c(
+    "x","x","y","y","z","z","z",
+    "x","x","y","y","z","z","z",
+    "x","x","y","y","z","z","z",
+    "x","x","y","y","z","z","z"
+  ),
+  timestep = c(
+    1,2,1,2,1,2,3,
+    1,2,1,2,1,2,3,
+    1,2,1,2,1,2,3,
+    1,2,1,2,1,2,3
+  ),
+  value = c(
+    -12,-70,23,32,-5,3,85,
+    -12,-70,23,32,-5,3,85,
+    -12,-70,23,32,-5,3,51,
+    -12,-70,23,32,-5,3,56
+  )
+) %>%
+  filter(variable != "y")
+
+df2 <- data.frame(
+  counterfactual_type = c(
+    "Detrimental","Detrimental",
+    "Inconsequential","Inconsequential",
+    "Necessary","Necessary",
+    "Redundant", "Redundant",
+    "Detrimental","Detrimental",
+    "Inconsequential","Inconsequential",
+    "Necessary","Necessary",
+    "Redundant", "Redundant"
+  ),
+  variable = c(
+    "Counterfactual Unintervened X","Counterfactual Z",
+    "Counterfactual Unintervened X","Counterfactual Z",
+    "Counterfactual Unintervened X","Counterfactual Z",
+    "Counterfactual Unintervened X","Counterfactual Z",
+    "Counterfactual Unintervened X","Counterfactual Z",
+    "Counterfactual Unintervened X","Counterfactual Z",
+    "Counterfactual Unintervened X","Counterfactual Z",
+    "Counterfactual Unintervened X","Counterfactual Z"
+  ),
+  timestep = c(
+    2,3,
+    2,3,
+    2,3,
+    2,3,
+    1,2,
+    1,2,
+    1,2,
+    1,2
+  ),
+  value = c(
+    -15,51,
+    -15,21,
+    -15,85,
+    -15,46,
+    -12,3,
+    -12,3,
+    -12,3,
+    -12,3
+  )
+)
+
+df3 <- data.frame(
+  counterfactual_type = c(
+    "Detrimental","Detrimental",
+    "Inconsequential","Inconsequential",
+    "Necessary","Necessary",
+    "Redundant", "Redundant"
+  ),
+  variable = rep("Intervention dotted line", 8),
+  timestep = rep(2, 8),
+  value = c(
+    -12,-70,
+    -12,-70,
+    -12,-70,
+    -12,-70
+  )
+)
+
+df4 <- data.frame(
+  counterfactual_type = c(
+    "Detrimental","Detrimental",
+    "Inconsequential","Inconsequential",
+    "Necessary","Necessary",
+    "Redundant", "Redundant"
+  ),
+  variable = rep("Counterfactual dotted line", 8),
+  timestep = rep(3, 8),
+  value = c(
+    85,52,
+    85,21,
+    51,85,
+    56,46
+  )
+)
+```
+
+```{r}
+fig <- ggplot() +
+  geom_rect(data = df, aes(xmin = -Inf, xmax = Inf, ymin = 40, ymax = 60), fill = "#b0ed3e", alpha = 0.04) +
+  
+  geom_line(data = df3, aes(x = timestep, y = value, col = variable, group = variable), linetype = "22", color = "#0000ff50", size = 0.8) +
+  
+  geom_line(data = df4, aes(x = timestep, y = value, col = variable, group = variable), linetype = "22", color = "#1eae1e50", size = 0.8) +
+  
+  geom_point(data = df2, aes(x = timestep, y = value, col = variable), size = 2.3) +
+  geom_line(data = df2, aes(x = timestep, y = value, col = variable, group = variable), size = 1) +
+  
+  geom_point(data = df, aes(x = timestep, y = value, col = variable), size = 2.3) +
+  geom_line(data = df, aes(x = timestep, y = value, col = variable, group = variable), size = 1) +
+  
+  facet_wrap(
+    ~counterfactual_type,
+    labeller = labeller(
+      counterfactual_type = c(
+        "Detrimental" = "Detrimental Intervention",
+        "Inconsequential" = "Inconsequential Intervention",
+        "Necessary" = "Necessary Intervention",
+        "Redundant" = "Redundant Intervention"
+        )
+      )
+    ) +
+  
+  scale_y_continuous(
+    limits = c(-100, 100), 
+    breaks = seq(-100, 100, by = 50)
+    ) +
+  scale_x_continuous(
+    breaks = c(1, 2, 3),  # Specify where ticks should appear
+    labels = c("t - 1", "t", "t + 1")  # Custom labels for each tick
+    ) +
+  scale_color_manual(
+    name = "Variable",
+    values = c("x" = "#0000ff", 
+               "y" = "#ff0000", 
+               "z" ="#1eae1e",
+               "Counterfactual Unintervened X" = "#0000ff50", #00bcd9
+               "Counterfactual Z" = "#1eae1e50"),
+               # "Counterfactual Z" = "#08f200"),
+    labels = c("x" = "Intervened X", "y" = "Y", "z" = "Z")
+    ) +
+  xlab("Time step") +
+  theme_light() +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 15),
+    legend.title = element_blank(),
+    strip.background = element_rect(fill = "white", color = "black", size = 1), # Set different color for strip background
+    strip.text = element_text(size = 15, face = "bold", color = "black"),  # Customize facet label text
+    axis.text.x = element_text(size = 15),   # X-axis text size
+    axis.title.x = element_text(size = 15),  # Y-axis title size
+    axis.title.y = element_blank(),  # Y-axis title size
+    axis.text.y = element_text(size = 15)   # Y-axis text size
+  )
+
+fig
+```
+
+```{r}
+ggsave("../figures/counterfactual_example.png", fig, height = 7, width = 8, dpi = 600)
+```
+
+
+

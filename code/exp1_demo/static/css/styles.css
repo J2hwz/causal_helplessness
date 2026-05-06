@@ -1,0 +1,438 @@
+html {
+    font-size: 18px;
+    font-family: Montserrat;
+}
+
+body {
+    padding: 20px;
+    padding-top: 40px;
+    width: 80%;
+    margin: auto;
+}
+
+h1 {
+    padding: 10px;
+    margin: 0;
+}
+
+/* Universal css */
+
+button {
+    background-color: #D50032;
+    border: none;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 0.5em;
+    font-size: 18px;
+    font-family: Montserrat;
+    line-height: inherit;
+    min-width: 2em;
+    text-align: center;
+}
+
+button:hover, button:active {
+    background-color: #B6012B;
+    cursor: pointer;
+}
+
+/* Instructions CSS */
+
+.ins_img {
+    width: 70%;
+    display: block;
+    margin: 0 auto;
+}
+
+.ins_slide p {
+    text-align: center;
+    font-size: 20px;
+}
+
+#ins_13 p {
+    text-align: left;
+}
+
+/* Experiment task styles */
+
+.task-display {
+    margin: auto; /* Center horizontally on the page */
+    width: 90%;
+    height: 500px; /* Ensure visibility for debugging */
+    display: flex;
+    align-content: center;
+    justify-content: center;
+    /* padding-bottom: 50px; */
+    /* justify-content: space-between; */
+}
+
+/* Style for the task header container */
+#task-header {
+    display: flex; /* Use flexbox to arrange children side by side */
+    justify-content: space-between; /* Add space between the elements */
+    align-items: center; /* Align items vertically in the center */
+    gap: 20px; /* Add spacing between the elements */
+}
+
+/* Style for the left section */
+#task-header-left {
+    flex: 1; /* Allow it to take up available space */
+    text-align: center; /* Center-align the text */
+}
+
+/* Style for the graph display */
+#graph_display {
+    flex: 1; /* Allow it to take up available space */
+    text-align: center; /* Center-align the image */
+}
+
+#graph_display img {
+    max-width: 100%; /* Ensure the image doesn't overflow */
+    height: auto; /* Maintain aspect ratio */
+}
+
+.chart-container {
+    padding: 2%;
+    width: 65%;
+    /* height: 100%; */
+    /* width: 100%; */
+    /* height: 500px; */
+    display: flex;
+    flex-wrap: wrap;
+    align-content: center;
+    justify-content: center;
+    /* background-color: rgb(255, 253, 240); */
+}
+
+.slider-container-1 {
+    padding: 2%;
+    width: 35%;
+    display: flex;
+    flex-direction: column;
+}
+
+.slider-space-above {
+    height: 40px;
+    width: 100%;
+}
+
+.slider-container-2 {
+    width: 100%;
+    height: 350px;
+    display: flex;
+    align-content: center;
+    justify-content: center;   
+    /* background-color: red; */
+}
+
+.slider-box {
+    width: 31%;
+    display: flex;
+    flex-wrap: nowrap;
+    align-content: center;
+    justify-content: center;   
+    /* background-color: pink; */
+}
+
+.slider-blank-space {
+    width: 7%;
+}
+
+/* .slider-style {
+    height: 400px;
+    align-self: center;
+} */
+
+#slider-x, #slider-y, #slider-z {
+    height: 100%;
+    width: 20%;
+    /* align-self: center; */
+}
+
+#slider-handle-x, #slider-handle-y {
+    width: 450%;
+    height: 3em;
+    left: 50%;
+    transform: translateX(-50%) translateY(50%); /* Align handle to center of slider horizontally */
+    
+    line-height: 3em;
+    text-align: center;
+    color: white;
+    /* font-size: 10px; */
+}
+
+#slider-handle-x {
+    background-color: rgb(0, 0, 255);
+}
+
+#slider-handle-y {
+    background-color: rgb(255, 0, 0);
+}
+
+#slider-handle-z {
+    width: 450%;
+    height: 3em;
+    left: 50%;
+    transform: translateX(-50%) translateY(50%);
+    line-height: 3em;
+    text-align: center;
+    color: white;
+    background-color: rgb(30, 174, 30, 0.75);
+}
+
+/* #slider-z .ui-slider-range {
+    display: none !important;
+} */
+
+
+/* Causal Query Styles */
+
+.causal_query_container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+  /* Styles for the image selection area */
+.image_container {
+    /* margin: auto; */
+    width: 90%;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin: auto;
+    margin-top: 40px;
+    margin-bottom: 40px;
+    justify-items: center;
+}
+
+.grid-container {
+    display: grid;
+    grid-template-columns: 2fr 2fr; /* Two columns of equal width */
+    gap: 10px; /* Space between grid items */
+}
+
+.grid-container div {
+    display: flex;
+    align-items: center; /* Align radio buttons and labels vertically */
+    gap: 5px; /* Space between radio button and label */
+}
+
+/* Individual image styles */
+.query_img {
+    width: 100px; /* Set image width */
+    padding: 10px;
+    height: auto; /* Maintain aspect ratio */
+    cursor: pointer; /* Indicate interactivity */
+    border: 2px solid transparent; /* Default border */
+    border-radius: 10px; /* Rounded corners */
+    
+}
+
+/* Highlight for the selected image */
+.image_container img.selected {
+    /* border: 3px solid gold; 
+    border-radius: 1em; */
+    background-color: rgb(250, 234, 190);
+}
+
+/* Container for radio button options */
+.causal_selector {
+    /* display: flex;
+    justify-content: center;
+    gap: 20px; Space between buttons */
+
+    display: grid;
+    grid-template-columns: 2fr 2fr; /* Two columns of equal width */
+    gap: 10px; /* Space between grid items */
+    width: 70%;
+    margin: auto;
+    margin-top: 40px;
+    /* align-items: center; */
+    /* justify-content: center; */
+}
+
+/* Hide radio buttons */
+.causal_selector input[type="radio"] {  
+    display: none;
+}
+
+/* Label styles for radio buttons */
+/* .causal_selector label {
+    padding: 10px 20px; 
+    background-color: rgba(0, 0, 0, 0.06); 
+    border-radius: 10px; 
+    cursor: pointer; 
+    transition: all 0.2s ease;
+    font-size: 20px;
+} */
+
+.causal_selector label {
+    display: inline-block; /* Ensure the label behaves like a block for proper alignment */
+    padding: 10px 20px; /* Add padding around the text */
+    background-color: rgba(0, 0, 0, 0.06); /* Background color */
+    border-radius: 10px; /* Rounded corners */
+    cursor: pointer; /* Indicate interactivity */
+    transition: all 0.2s ease; /* Smooth hover effect */
+    font-size: 20px; /* Font size */
+    text-align: center; /* Center the text horizontally */
+    line-height: 1.5; /* Adjust line height for vertical centering */
+    width: auto; /* Ensure the label width wraps tightly around the text */
+}
+
+/* Styles for selected radio buttons */
+.causal_selector input[type="radio"]:checked + label {
+    /* background-color: rgb(68, 88, 143); 
+    color: white; 
+    border-color: rgb(68, 88, 143);  */
+    background-color: #041E42;
+	color: white;
+}
+
+/* Disabled label styles */
+.causal_selector label:disabled {
+    cursor: not-allowed; /* Show as non-interactive */
+    opacity: 0.5; /* Dim appearance */
+}
+
+.grid-container {
+    display: grid;
+    grid-template-columns: 2fr 2fr; /* Two columns of equal width */
+    gap: 10px; /* Space between grid items */
+}
+/* 
+.grid-container div {
+    display: flex;
+    align-items: center; /* Align radio buttons and labels vertically */
+    /* gap: 5px; Space between radio button and label */
+/* } */
+
+
+
+/* Hope Scale Styles */
+
+#scale_header {
+    padding-bottom: 20px;
+}
+
+#scale_container {
+    width: 90%;
+    margin: auto;
+}
+
+.scale_question {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    margin: auto;
+    justify-content: center;
+    margin-bottom: 30px;
+}
+
+.scale_text {
+    width: 40%;
+}
+  
+.scale_likert {
+    /* display: grid; */
+    /* justify-content: space-evenly; */
+    /* width: 100%; */
+    /* margin-left: 15px; */
+    align-items: center;
+    container-type: inline-size; /* Enable container queries */
+    container-name: scale_label;
+
+    margin: auto;
+    width: 70%;
+    display: grid;
+    grid-template-columns: 2fr 2fr; /* Two columns of equal width */
+    gap: 30px; /* Space between grid items */
+}
+
+.scale_likert input[type="radio"] {
+    display: none;
+}
+
+.scale_likert label {
+    margin: 0 0.25em;
+    background-color: rgba(0, 0, 0, 0.06);
+    padding: 0.5em;
+    border-radius: 0.5em;
+    text-align: center;
+    font-size: 18px;
+    cursor: pointer; 
+    transition: all 0.2s ease; 
+}
+
+@container scale_label (max-width: 600px) {
+    .scale_likert label {
+        font-size: 15px;
+    }
+}
+
+.scale_likert input[type="radio"]:checked + label {
+	background-color: #041E42;
+	color: white;
+}
+
+
+
+/* Demographics Styles */
+
+#demographics_header {
+    padding-bottom: 20px;
+}
+
+#comp_container, #end_round_container, #demo_container {
+    width: 90%;
+    margin: auto;
+}
+
+.demo_question {
+    width: 100%;
+    display: flex;
+    /* align-items: center; */
+    margin: auto;
+    justify-content: center;
+    margin-bottom: 30px;
+}
+
+.demo_col_1 {
+    width: 5%;
+
+}
+
+.demo_col_2 {
+    width: 75%;
+}
+
+.demo_col_3 {
+    width: 20%;
+    padding-left: 25px;
+    margin: auto;
+}
+
+.comp_questions, .endroundQ, .posttestQ {
+    width: 90%;
+    font-size: 18px;
+    font-family: Montserrat;
+}
+
+.demo_question_textarea {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 25px;
+}
+
+.demo_col_4 {
+    display: flex;
+}
+
+.demo_col_5 {
+    width: 80%;
+    margin-left: 5%;
+}
+
+.demo_col_5 textarea {
+    resize: none;
+}

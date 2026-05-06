@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Loading CSS files -->
+    <link rel="stylesheet" href="./static/css/styles.css">
+    <link rel="stylesheet" href="./static/libraries/jquery-ui-1.14.1/jquery-ui.min.css">
+
+    <!-- Loading font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,100;0,300;0,400;0,500;0,700;0,800;0,900;1,100;1,300;1,400;1,500;1,700;1,800;1,900&family=Alegreya:ital,wght@0,400..900;1,400..900&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+
+    <!-- Loading javascript libraries -->
+    <script src="./static/libraries/jquery-3.7.1.min.js"></script>
+    <script src="./static/libraries/jquery-ui-1.14.1/jquery-ui.min.js"></script>
+
+    <!-- Loading chart.js for plots -->
+    <script src="./static/libraries/chart.js/dist/chart.umd.js"></script>
+    <script src="./static/libraries/chartjs-plugin-annotation/dist/chartjs-plugin-annotation.min.js"></script>
+
+    <!-- Linking javascript file -->
+    <script src="./static/js/script.js"></script>
+
+    <title>Control Sliders Experiment</title>
+</head>
+
+<body onload="start();">
+
+    <!-- Consent form -->
+    <div id="consent">
+        <!-- <div style="display: flex; margin: auto; width: 80%; justify-content: space-evenly">
+            <div align=center style="margin-bottom: 20px;"><button id = "straight_to_task"><b>Go straight to task</b></button></div>
+            <div align=center style="margin-bottom: 20px;"><button id = "straight_to_scale"><b>Go straight to hope scale</b></button></div>
+            <div align=center><button id = "straight_to_demographics"><b>Go straight to demographics</b></button></div>    
+        </div> -->
+
+        <div class="slide">
+			<img src="./static/assets/images/PPLS.png" alt="ex1" style="float: right; width: 400px;">
+			<br /><br />
+			<h1>Information sheet for participants</h1>
+			
+            <br />
+            <!-- Fake study name -->
+            <b>Study title:</b> Learning Strategies in Dynamic Control Environments<br />
+            <b>Principal Investigator:</b> Neil Bramley (neil.bramley@ed.ac.uk)<br />
+            <b>Researcher collecting data:</b> Joshua Hew (s2144522@ed.ac.uk)<br /><br />
+            
+            <p>
+                <b>What is this document?</b> 
+                This document explains what kind of study we’re doing, what your rights are, and what will be done with your data. You should print this page for your records.
+            </p>
+            
+            <p>
+                <b>Nature of the study.</b> 
+                You are invited to participate in a study which involves interacting with simple sliders on your screen and answering questions about your observations. 
+                Your performance on the tasks and responses to questionnaire items will recorded. 
+                Once you finish, we may have some questions about you (e.g., age, gender). 
+                You will also have a chance to see how you rank against other participants on the leaderboard.
+                Your session should last for up to 20 minutes. 
+                You will be given full instructions shortly.
+            </p>
+            
+            <p>
+                <b>Compensation.</b> 
+                You will be paid £2 for your participation in this study.
+            </p>
+            
+            <p>
+                <b>Risks and benefits.</b> 
+                There are no known risks to participation in this study. 
+                There are no tangible benefits to you, however you will be contributing to our knowledge about causal cognition.
+            </p>
+            
+            <p>
+                <b>Confidentiality and use of data.</b> 
+                All the information we collect during the course of the research will be processed in accordance with Data Protection Law. 
+                In order to safeguard your privacy, we will never share personal information (like names or dates of birth) with anyone outside the research team. 
+                Your data will be referred to by a unique participant number rather than by name. 
+                Please note that we will temporarily collect your IP address to prevent repeat participation, however we will never share this information with anyone outside the research team. 
+                We will store your IP address using the University of Edinburghs secure encrypted data base and delete it upon completion of the study. 
+                The anonymised data collected during this study will be used for research purposes only.
+            </p>
+            
+            <p>
+                <b>What are my data protection rights?</b> 
+                The University of Edinburgh is a Data Controller for the information you provide. 
+                You have the right to access information held about you. 
+                Your right of access can be exercised in accordance with Data Protection Law. 
+                You also have other rights including rights of correction, erasure and objection. 
+                For more details, including the right to lodge a complaint with the Information Commissioners Office, please visit www.ico.org.uk. 
+                Questions, comments and requests about your personal data can also be sent to the University Data Protection Officer at dpo@ed.ac.uk. 
+            </p>
+
+            <p>
+                <b>Voluntary participation and right to withdraw.</b> 
+                Your participation is voluntary, and you may withdraw from the study at any time and for any reason during the experiment. 
+                If you withdraw from the study during data gathering, we will delete your data and there is no penalty or loss of benefits to which you are otherwise entitled. 
+                You cannot withdraw from this study after completion of the task because your data will be stored anonymously. 
+            </p>
+            
+            <p>
+                If you have any questions about what you have just read, please feel free to ask, or contact us later. 
+                You can contact us by email at s2144522@ed.ac.uk. 
+                This project has been approved by the PPLS Ethics committee. 
+                If you have questions or comments regarding your rights as a participant, please contact the School Research Ethics Convenor at or ppls.rec@ed.ac.uk                
+            </p>
+
+            <p>
+                <b>By clicking the button below, you consent to the following:<br /><br />
+                1.	I agree to participate in this study.<br />
+                2.	I confirm that I have read and understood how my data will be stored and used.<br />
+                3.	I understand that I have the right to terminate this session at any point. <br /></b>
+            </p>
+
+			<br />
+			<p><span>Please enter your Prolific ID:</span></p>
+			<div style="text-align: center;">
+				<input type="text" class = "get_proid" name="proid" id="proid" size="50">
+			</div>
+			<br />
+			<div align=center>
+                <button id="done_consent"><b>I consent to the above information</b></button>
+            </div>
+			<br />
+
+		</div>
+    </div>
+
+    <!-- Instructions -->
+    <div id="ins_1" class="ins_slide">
+        <h1>Welcome</h1>
+			<br/><br/>
+			<p> Thank you for participating in the <b><font color=#CFAB02>Slider Control</font></b> experiment! Before we begin, take a moment to familiarise yourself with the task environment. </p>
+            <p>Please note, this experiment needs to be done on a <b><font color=#FF0000>COMPUTER</font></b>, not a mobile phone or a tablet.</p><br/>
+			<p><b>Please, review the following instructions carefully. You will have to pass a comprehension quiz before you can begin.</b></p>
+			<div align=center>
+                <button class="ins_btn"><b>Continue</b></button>
+            </div>
+    </div>
+
+    <div id="ins_2" class="ins_slide">
+        <h1>Instructions</h1>
+        <p>
+            You will interact with three variables, <b><font color=#0000FF>X</font></b>, <b><font color=#FF0000>Y</font></b> and <b><font color=#1EAE1E>Z</font></b>, that change their values over time.
+        </p>
+        <div style="width: 80%; margin: auto;" align=center>
+            <video id="instruction_video" controls autoplay muted width ="90%">
+                <source src="static/assets/videos/instruction_recording.mov" type="video/mp4">
+            </video>
+        </div> 
+        <p>Note, all three variables can <b>influence</b> each other!</p>
+        <br/>
+        <div align=center>
+            <button id = "continue_video" class="ins_btn"><b>Continue</b></button>
+        </div>
+    </div>
+
+    <div id="ins_3" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_1.png" alt="ins1">
+        <p>Adjust the values of <b><font color=#0000FF>X</font></b> and <b><font color=#FF0000>Y</font></b> to move <b><font color=#1EAE1E>Z</font></b> onto the reward region (shaded green) of the graph.</p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_4" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_2.png" alt="ins2">
+        <p>You can click, drag or hold the <b>left</b> slider to adjust the value of <b><font color=#0000FF>X</font></b>.</p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_5" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_3.png" alt="ins3">
+        <p>You can click, drag or hold the <b>middle</b> slider to adjust the value of <b><font color=#FF0000>Y</font></b>.</p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_6" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_31.png" alt="ins31">
+        <p>You cannot interact with slider <b><font color=#1EAE1E>Z</font></b>. You may influence its value by adjusting <b><font color=#0000FF>X</font></b> or <b><font color=#FF0000>Y</font></b>. </p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_7" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_4.png" alt="ins4">
+        <p>Here, <b><font color=#1EAE1E>Z</font></b> is in the reward region of the graph! &#128512; </p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_8" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_5.png" alt="ins5">
+        <p>Here, <b><font color=#1EAE1E>Z</font></b> is NOT in the reward region of the graph! &#128533; </p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_9" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_6.png" alt="ins6">
+        <p>You earn <b>5 points</b> each time you successfully place or keep <b><font color=#1EAE1E>Z</font></b> in the reward region! </p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_10" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_7.png" alt="ins7">
+        <p>However, each time you interact with <b><font color=#0000FF>X</font></b> or <b><font color=#FF0000>Y</font></b> will cost you <b>1 point</b>!</p>
+        <p style="font-size: 15px;"><i>You maintain your points when you don't interact with any sliders.</i></p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_11" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" src="./static/assets/images/Instructions_8.png" alt="ins8">
+        <p>You only have a limited number of steps to complete each task.</p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_12" class="ins_slide">
+        <h1>Instructions</h1>
+        <img class="ins_img" style="width: 50%;" src="./static/assets/images/instruction_original_1.png" alt="ins9">
+        <p>There will be <b>3 training rounds</b> for you to get used to the task.</p>
+        <p>Your goal is to score as many points as possible in the subsequent <b>3 test rounds</b>.</p>
+        <p>Your score will start at 10 points at the start of the first training and test rounds.</p>
+        <br/>
+        <p>This task is <b>hard</b>, please do your best and try not to give up halfway through! &#128170;</p>
+        <br/>
+        <div align=center><button class="ins_btn"><b>Continue</b></button></div>
+    </div>
+
+    <div id="ins_13" class="ins_slide">
+        <h1>Comprehension quiz</h1>
+        <p>Before we start, please answer the following questions to show you understand the task. If you get a question wrong you will have the chance to review the instructions.</p><br/>
+
+        <div id="comp_container">
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>1.</b></p></div>
+                <div class="demo_col_2">
+                    <p>You adjust the value of <b><font color=#0000FF>X</font></b> and <b><font color=#FF0000>Y</font></b> by clicking, dragging or holding the sliders at any desired value.</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="comp_q1" class="comp_questions">
+                        <option value="noresp" SELECTED></option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                    </select>
+                </div>
+            </div>
+    
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>2.</b></p></div>
+                <div class="demo_col_2">
+                    <p>The variables have no effect on each other.</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="comp_q2" class="comp_questions">
+                        <option value="noresp" SELECTED></option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                    </select>
+                </div>
+            </div>
+    
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>3.</b></p></div>
+                <div class="demo_col_2">
+                    <p>You gain <b>5 points</b> by placing <b><font color=#1EAE1E>Z</font></b> in the reward region.</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="comp_q3" class="comp_questions">
+                        <option value="noresp" SELECTED></option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                    </select>
+                </div>
+            </div>
+    
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>4.</b></p></div>
+                <div class="demo_col_2">
+                    <p>You may freely interact with sliders <b><font color=#0000FF>X</font></b> and <b><font color=#FF0000>Y</font></b> <b>without</b> affecting your score.</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="comp_q4" class="comp_questions">
+                        <option value="noresp" SELECTED></option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                    </select>
+                </div>
+            </div>
+    
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>5.</b></p></div>
+                <div class="demo_col_2">
+                    <p>Your goal is to score as many points as possible in the <b>test rounds</b>.</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="comp_q5" class="comp_questions">
+                        <option value="noresp" SELECTED></option>
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    
+        <div align=center>
+            <button id = "comp_check">Check answers</button>
+        </div>
+    </div>
+
+    <!-- Experimental task -->
+    <div id="experiment-trial">
+        <!-- Header -->
+        <div id="task-header">
+            <h1 id="trial_display">Training Round 1</h1>
+            <p style="text-align: center; color: rgb(207, 171, 2);" id="step_score_display"><b>Score: 0</b></p>
+            <p style="text-align: center" id="step_countdown_display"><i>Steps: 0/30</i></p>
+        </div>
+
+        <div class="task-display">
+            <div class="chart-container">
+                <canvas id="progress-chart" style="width: 100%; height: 100%"></canvas>
+            </div>
+
+            <div class="slider-container-1">
+                <div class="slider-space-above">
+
+                </div>
+                <div class="slider-container-2">
+                    <div class="slider-box" id="slider-sub-container-x">
+                        <div class="slider" id="slider-x">
+                            <div id="slider-handle-x" class="ui-slider-handle">X</div>
+                        </div>
+                    </div>
+    
+                    <div class="slider-box" id="slider-sub-container-y">
+                        <div class="slider" id="slider-y">
+                            <div id="slider-handle-y" class="ui-slider-handle">Y</div>
+                        </div>
+                    </div>
+                    
+                    <div class="slider-blank-space"></div>
+    
+                    <div class="slider-box" id="slider-sub-container-z">
+                        <div class="slider" id="slider-z">
+                            <div id="slider-handle-z" class="ui-slider-handle">Z</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class='slide' align=center>
+            <p style="text-align: center; font-size: 12px;"><i>Placing Z in the reward region earns 5 points, while moving the sliders costs 1 point.</i></p>
+			<button id='start_button'><b>Start</b></button>
+            <button id='view_score_button'><b>View Score</b></button>
+		</div>
+    </div>
+
+    <!-- Trial score and causal query question -->
+    <div id="trial_score">
+        <div id="task-header">
+            <h1 id="trial_display_score">Training Round 1</h1>
+            <p style="text-align: center" id="trial_score_display"><b>Points scored in previous round: 0</b></p>
+            <p style="text-align: center; color: red;" id="intervention_display"><b>You moved the sliders 0 times.</b></p>
+            <p style="text-align: center; color: rgb(207, 171, 2); font-size: 25px;" id="total_score_display"><b>Total score: 0</b></p>
+        </div>
+
+        <div id="causal_query_container">
+            <h2>Do you think X, Y, and Z were causally related?</h2>
+            <p>Pick the most likely causal structure and relationship from the previous trial.</p>
+        
+            <div class="image_container">
+              <!-- Each image has an onclick event to select it -->
+              <img src="./static/assets/images/structure1.png" id="img1" class="query_img" onclick="select_structure(1)">
+              <img src="./static/assets/images/structure2.png" id="img2" class="query_img" onclick="select_structure(2)">
+              <img src="./static/assets/images/structure3.png" id="img3" class="query_img" onclick="select_structure(3)">
+              <img src="./static/assets/images/structure4.png" id="img4" class="query_img" onclick="select_structure(4)">
+              <img src="./static/assets/images/structure5.png" id="img5" class="query_img" onclick="select_structure(5)">
+              <img src="./static/assets/images/structure6.png" id="img6" class="query_img" onclick="select_structure(6)">
+            </div>
+        
+            <!-- Options for "Regular" and "Inverse" relationships -->
+            <div class="causal_relationship_container">
+              <!-- Radio button for "Regular" -->
+              <input type="radio" id="regular" name="relationship" value="1" disabled>
+              <label for="regular">Regular</label>
+        
+              <!-- Radio button for "Inverse" -->
+              <input type="radio" id="inverse" name="relationship" value="-1" disabled>
+              <label for="inverse">Inverse</label>
+            </div>
+            <div id="relationship_container">
+                <p id="relationship_description" style="text-align: center;">"X attracted Y" &nbsp; "X repelled Y"</p>
+            </div>
+            
+        </div>
+
+        <div align=center style="margin-top: 30px;">
+			<button id='next_trial_button'>Next</button>
+		</div>
+    </div>
+
+    <!-- Slide at end of training or test rounds -->
+    <div id="end_round_summary">
+        <div id="task-header">
+            <h1 id="end_round_header">End of Training Rounds</h1>
+            <p style="text-align: center" id="end_round_1">You have now finished all training rounds.</p>
+            <p style="text-align: center; color: rgb(207, 171, 2); font-size: 25px;" id="end_round_score"><b>You have scored a total of x points.</b></p>
+            <p style="text-align: center" id="end_round_2">Please answer the following questions about the <b>training</b> rounds:</p>
+        </div>
+
+        <!-- Control and difficulty questions -->
+        <div id="end_round_container">
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>1.</b></p></div>
+                <div class="demo_col_2">
+                    <p>On a scale of 1-10 (where 10 is complete control), please rate how much <b>CONTROL</b> you had over the system across the last three rounds:</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="control" name="control" class="endroundQ">
+                        <option value="--" SELECTED>
+                        <option value="10">10 - Complete control</option>
+                        <option value="9">9</option>
+                        <option value="8">8</option>
+                        <option value="7">7</option>
+                        <option value="6">6</option>
+                        <option value="5">5 - Moderate control</option>
+                        <option value="4">4</option>
+                        <option value="3">3</option>
+                        <option value="2">2</option>
+                        <option value="1">1</option>
+                        <option value="0">0 - No control at all</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>2.</b></p></div>
+                <div class="demo_col_2">
+                    <p>On a scale of 1-10 (where 10 is the most difficult), please rate how <b>DIFFICULT</b> you found the last three rounds:</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="difficulty" name="difficulty" class="endroundQ">
+                        <option value="--" SELECTED>
+                        <option value="10">10 - Very difficult</option>
+                        <option value="9">9</option>
+                        <option value="8">8</option>
+                        <option value="7">7</option>
+                        <option value="6">6</option>
+                        <option value="5">5 - Moderately difficult</option>
+                        <option value="4">4</option>
+                        <option value="3">3</option>
+                        <option value="2">2</option>
+                        <option value="1">1</option>
+                        <option value="0">0 - Not difficult at all</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <br/>
+        <div align=center>
+            <button id="done_round"><b>Next</b></button>
+        </div>
+        <br/>
+
+
+    </div>
+
+    <!-- Hope Scale -->
+    <div id="hope_scale">
+        <div id="scale_header">
+            <h1>Additional Questions</h1>
+            <p><b>Read each item carefully.</b> Using the scale shown below, please select the option that best describes you.</p>
+        </div>
+        <div id="scale_container">
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I can think of many ways to get out of a jam.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale1_1" name="scale1" value="1"><label for="scale1_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale1_2" name="scale1" value="2"><label for="scale1_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale1_3" name="scale1" value="3"><label for="scale1_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale1_4" name="scale1" value="4"><label for="scale1_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I energetically pursue my goals.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale2_1" name="scale2" value="1"><label for="scale2_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale2_2" name="scale2" value="2"><label for="scale2_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale2_3" name="scale2" value="3"><label for="scale2_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale2_4" name="scale2" value="4"><label for="scale2_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I feel tired most of the time.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale3_1" name="scale3" value="1"><label for="scale3_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale3_2" name="scale3" value="2"><label for="scale3_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale3_3" name="scale3" value="3"><label for="scale3_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale3_4" name="scale3" value="4"><label for="scale3_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>There are lots of ways around any problem.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale4_1" name="scale4" value="1"><label for="scale4_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale4_2" name="scale4" value="2"><label for="scale4_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale4_3" name="scale4" value="3"><label for="scale4_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale4_4" name="scale4" value="4"><label for="scale4_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I am easily downed in an argument.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale5_1" name="scale5" value="1"><label for="scale5_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale5_2" name="scale5" value="2"><label for="scale5_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale5_3" name="scale5" value="3"><label for="scale5_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale5_4" name="scale5" value="4"><label for="scale5_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I can think of many ways to get the things in life that are most important to me.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale6_1" name="scale6" value="1"><label for="scale6_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale6_2" name="scale6" value="2"><label for="scale6_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale6_3" name="scale6" value="3"><label for="scale6_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale6_4" name="scale6" value="4"><label for="scale6_4">Definitely True</label></div>
+                </div>
+            </div>
+
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I worry about my health.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale7_1" name="scale7" value="1"><label for="scale7_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale7_2" name="scale7" value="2"><label for="scale7_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale7_3" name="scale7" value="3"><label for="scale7_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale7_4" name="scale7" value="4"><label for="scale7_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>Even when others get discouraged, I know I can find a way to solve the problem.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale8_1" name="scale8" value="1"><label for="scale8_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale8_2" name="scale8" value="2"><label for="scale8_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale8_3" name="scale8" value="3"><label for="scale8_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale8_4" name="scale8" value="4"><label for="scale8_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>My past experiences have prepared me well for my future.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale9_1" name="scale9" value="1"><label for="scale9_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale9_2" name="scale9" value="2"><label for="scale9_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale9_3" name="scale9" value="3"><label for="scale9_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale9_4" name="scale9" value="4"><label for="scale9_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I've been pretty successful in life.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale10_1" name="scale10" value="1"><label for="scale10_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale10_2" name="scale10" value="2"><label for="scale10_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale10_3" name="scale10" value="3"><label for="scale10_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale10_4" name="scale10" value="4"><label for="scale10_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I usually find myself worrying about something.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale11_1" name="scale11" value="1"><label for="scale11_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale11_2" name="scale11" value="2"><label for="scale11_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale11_3" name="scale11" value="3"><label for="scale11_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale11_4" name="scale11" value="4"><label for="scale11_4">Definitely True</label></div>
+                </div>
+            </div>
+        
+            <div class="scale_question">
+                <div class="scale_text">
+                    <p>I meet the goals that I set for myself.</p>
+                </div>
+                <div class="scale_likert">
+                    <div><input type="radio" id="scale12_1" name="scale12" value="1"><label for="scale12_1">Definitely False</label></div>
+                    <div><input type="radio" id="scale12_2" name="scale12" value="2"><label for="scale12_2">Mostly False</label></div>
+                    <div><input type="radio" id="scale12_3" name="scale12" value="3"><label for="scale12_3">Mostly True</label></div>
+                    <div><input type="radio" id="scale12_4" name="scale12" value="4"><label for="scale12_4">Definitely True</label></div>
+                </div>
+            </div>
+        </div>
+
+        <h3> To continue, please answer <span style="color:red">all questions</span>.</h3>
+        <br/>
+        <div align=center>
+            <button id="done_scale"><b>Next</b></button>
+        </div>
+        <br/>
+        
+    </div>
+
+    <!-- Demographics and debrief -->
+    <div id="demographics_debrief">
+        <div id="demographics_header">
+            <h1>Demographics and Debrief</h1>
+            <p>Please answer the following questions to finish the study.</p>        
+        </div>
+
+        <div id="demo_container">
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>1.</b></p></div>
+                <div class="demo_col_2">
+                    <p>How old are you?</p>
+                </div>
+                <div class="demo_col_3">
+                    <input id="age" class="posttestQ" type="number" maxlength = "3" name="age" id="age" min="1" max="100" step = "1" required>
+                </div>
+            </div>
+
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>2.</b></p></div>
+                <div class="demo_col_2">
+                    <p>What is your gender?</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="sex" name="sex" class="posttestQ">
+                        <option value="noresp" SELECTED></option>
+                        <option value="female">Female</option>
+                        <option value="male">Male</option>
+                        <option value="other">Non-binary / Other</option>
+                        <option value="noresponse">Prefer not to say</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>3.</b></p></div>
+                <div class="demo_col_2">
+                    <p>On a scale of 1-10 (where 10 is the most engaged), please rate how <b>ENGAGING</b> you found the task:</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="engagement" name="engagement" class="posttestQ">
+                        <option value="--" SELECTED>
+                        <option value="10">10 - Very engaging</option>
+                        <option value="9">9</option>
+                        <option value="8">8</option>
+                        <option value="7">7</option>
+                        <option value="6">6</option>
+                        <option value="5">5 - Moderately</option>
+                        <option value="4">4</option>
+                        <option value="3">3</option>
+                        <option value="2">2</option>
+                        <option value="1">1</option>
+                        <option value="0">0 - Not engaged</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>4.</b></p></div>
+                <div class="demo_col_2">
+                    <p>Did you use a trackpad or a mouse when completing the study?</p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="mouse_trackpad" name="mouse_trackpad" class="posttestQ">
+                        <option value="noresp" SELECTED></option>
+                        <option value="trackpad">Trackpad</option>
+                        <option value="Mouse">Mouse</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="demo_question_textarea">
+                <div class="demo_col_4">
+                    <div class="demo_col_1"><p><b>5.</b></p></div>
+                    <div class="demo_col_2">
+                        <p>Which strategy did you use to solve the tasks? Did your strategy change over the course of this experiment? Please, be specific.</p>
+                    </div>
+                </div>
+                <div class="demo_col_5">
+                    <textarea id="strategy" name="strategy" class="posttestQ" maxlength="800" name="answer" rows="4" cols="50"></textarea>
+                </div>
+            </div>
+
+            <div class="demo_question">
+                <div class="demo_col_1"><p><b>6.</b></p></div>
+                <div class="demo_col_2">
+                    <p>
+                        Finally, please be <b>honest</b> when answering the following question. 
+                        Your answer will <b>NOT</b> affect your payment or eligibility for future studies.
+                        <b>Do you feel that you paid attention, avoided distractions, and took this experiment seriously?</b>
+                    </p>
+                </div>
+                <div class="demo_col_3">
+                    <select id="concentration" name="concentration" class="posttestQ">
+                        <option value="noresp" SELECTED></option>
+                        <option value="distracted">No, I was distracted</option>
+                        <option value="trouble">No, I had trouble paying attention</option>
+                        <option value="notserious">No, I did not take this survey seriously</option>
+                        <option value="somethingelse">No, something else affected my participation negatively</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="demo_question_textarea">
+                <div class="demo_col_4">
+                    <div class="demo_col_1"></div>
+                    <div class="demo_col_2">
+                        <p><b>Optional:</b> Did you discover any bugs in this experiment? If so, please provide a short description of the bug(s).</p>
+                    </div>
+                </div>
+
+                <div class="demo_col_5">
+                    <textarea id="bugs" name="bugs" class="posttestQ" maxlength="400" name="answer" rows="4"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <h3> To continue, please answer <span style="color:red">all questions</span>.</h3>
+        <br/>
+        <div align=center>
+            <button id="done_debrief"><b>Done</b></button>
+        </div>
+        <br/>
+		
+	</div>
+
+    <div id="thank_you">
+        <h1 style="text-align: center;">Thanks for your participation! We hope you enjoyed the study.</h1>
+        
+        <p>If you would like to find out how your score compares to other participants, click <a href="https://eco.ppls.ed.ac.uk/~s2144522/exp1_leaderboard/" target="_blank" rel="noopener noreferrer"><b>here</b></a>.</p>
+
+        <p>Click <a href='https://app.prolific.com/submissions/complete?cc=C7DT77AQ' target="_blank" rel="noopener noreferrer"><b>here</b></a> to redirect to Prolific.</p>
+        
+        <p>Your completion code is: <b>C7DT77AQ</b></p>
+
+        <p>If you have further questions about the study or your participation please contact us via s2144522@ed.ac.uk. </p>
+    </div>
+
+</body>
+
+
+
+</html>

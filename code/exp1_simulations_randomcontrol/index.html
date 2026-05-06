@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Loading CSS files -->
+    <link rel="stylesheet" href="./static/css/styles.css">
+    <link rel="stylesheet" href="./static/libraries/jquery-ui-1.14.1/jquery-ui.min.css">
+
+    <!-- Loading font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,100;0,300;0,400;0,500;0,700;0,800;0,900;1,100;1,300;1,400;1,500;1,700;1,800;1,900&family=Alegreya:ital,wght@0,400..900;1,400..900&family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+
+    <!-- Loading javascript libraries -->
+    <script src="./static/libraries/jquery-3.7.1.min.js"></script>
+    <script src="./static/libraries/jquery-ui-1.14.1/jquery-ui.min.js"></script>
+
+    <!-- Loading chart.js for plots -->
+    <script src="./static/libraries/chart.js/dist/chart.umd.js"></script>
+    <script src="./static/libraries/chartjs-plugin-annotation/dist/chartjs-plugin-annotation.min.js"></script>
+
+    <!-- Linking javascript file -->
+    <script src="./static/js/script.js"></script>
+
+    <title>Control Sliders Demo</title>
+</head>
+
+<body onload="start();">
+    <!-- onload="start();" means that the function onload will run when the page loads -->
+
+    <div id="demo_choice">
+
+        <h1>Welcome to the demo for my dissertation experiment! &#128736; </h1>
+
+        <h2>Choose a causal structure &#x1f9f1;</h2>
+
+        <div id="causal_structure_container" class="image_container">
+            <!-- Each image has an onclick event to select it -->
+            <img src="./static/assets/images/graph1a.png" id="img1" class="query_img" onclick="select_structure(1)">
+            <img src="./static/assets/images/graph1b.png" id="img2" class="query_img" onclick="select_structure(2)">
+            <img src="./static/assets/images/graph2a.png" id="img3" class="query_img" onclick="select_structure(3)">
+            <img src="./static/assets/images/graph2b.png" id="img4" class="query_img" onclick="select_structure(4)">
+            <img src="./static/assets/images/graph3a.png" id="img5" class="query_img" onclick="select_structure(5)">
+            <img src="./static/assets/images/graph3b.png" id="img6" class="query_img" onclick="select_structure(6)">
+            <img src="./static/assets/images/graph4a.png" id="img7" class="query_img" onclick="select_structure(7)">
+            <img src="./static/assets/images/graph4b.png" id="img8" class="query_img" onclick="select_structure(8)">
+            <img src="./static/assets/images/graph5a.png" id="img9" class="query_img" onclick="select_structure(9)">
+            <img src="./static/assets/images/graph5b.png" id="img10" class="query_img" onclick="select_structure(10)">
+            <img src="./static/assets/images/graph6a.png" id="img11" class="query_img" onclick="select_structure(11)">
+            <img src="./static/assets/images/graph6b.png" id="img12" class="query_img" onclick="select_structure(12)">
+        </div>
+
+        <h2>Choose a condition &#x1f500;</h2>
+
+        <div id="causal_relationship_container" class="causal_selector">
+            <!-- <div> -->
+                <input type="radio" id="P" name="relationship" value="1">
+                <label for="P">Low control small reward region &#x1f608;</label>
+            <!-- </div> -->
+            
+            <!-- <div> -->
+                <input type="radio" id="Q" name="relationship" value="2">
+                <label for="Q">High control small reward region &#x1f917;</label>
+            <!-- </div> -->
+
+            <!-- <div> -->
+                <input type="radio" id="R" name="relationship" value="3">
+                <label for="R">Low control large reward region &#x1f608;</label>
+            <!-- </div> -->
+
+            <!-- <div> -->
+                <input type="radio" id="S" name="relationship" value="4">
+                <label for="S">High control large reward region &#x1f917;</label>
+            <!-- </div> -->
+        </div>
+
+        <div align=center style="margin-top: 30px; margin-bottom: 20px;"><button id = "straight_to_task"><b>Go to task</b></button></div>
+    </div>
+
+    <div id="demo_task">   
+        <!-- <h1 id="trial_display">Round Demo</h1> -->
+        <div id="task-header">
+            <div id="task-header-left">
+                <p style="text-align: center; color: rgb(207, 171, 2);" id="step_score_display"><b>Score: 0</b></p>
+                <p style="text-align: center" id="step_countdown_display"><i>Steps: 0/30</i></p>
+            </div>
+            
+            <div id="graph_display">
+                <img id="graph_image" src="" alt="Graph Image" style="width: 120px;">
+            </div>
+        </div>
+
+        <div class="task-display">
+            <div class="chart-container">
+                <canvas id="progress-chart" style="width: 100%; height: 100%"></canvas>
+            </div>
+
+            <div class="slider-container-1">
+                <div class="slider-space-above">
+
+                </div>
+                <div class="slider-container-2">
+                    <div class="slider-box" id="slider-sub-container-x">
+                        <div class="slider" id="slider-x">
+                            <div id="slider-handle-x" class="ui-slider-handle">X</div>
+                        </div>
+                    </div>
+    
+                    <div class="slider-box" id="slider-sub-container-y">
+                        <div class="slider" id="slider-y">
+                            <div id="slider-handle-y" class="ui-slider-handle">Y</div>
+                        </div>
+                    </div>
+                    
+                    <div class="slider-blank-space"></div>
+    
+                    <div class="slider-box" id="slider-sub-container-z">
+                        <div class="slider" id="slider-z">
+                            <div id="slider-handle-z" class="ui-slider-handle">Z</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class='slide' align=center style="padding-bottom: 50px;">
+            <p style="text-align: center; font-size: 12px;"><i>Placing Z in the reward region earns 5 points, while moving the sliders costs 1 point. Refresh the page to choose a different causal structure or condition.</i></p>
+            <!-- <p style="text-align: center; font-size: 12px;"><i></i></p> -->
+            <button id='start_button'><b>Start</b></button>
+            <!-- <button id='view_score_button'><b>View Score</b></button> -->
+        </div>
+    </div>
+</body>
+
+
+
+</html>

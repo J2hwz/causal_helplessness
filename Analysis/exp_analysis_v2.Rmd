@@ -1,0 +1,1788 @@
+---
+title: "Causal_helplessness_analysis_v2"
+output: html_document
+date: "2025-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup 
+
+Calling libraries
+
+```{r}
+library(tidyverse)
+library(jsonlite)
+library(lme4)
+library(parameters)
+library(MASS)
+library(merDeriv)
+library(ordinal)
+library(patchwork)
+library(sjPlot)
+library(ggeffects)
+library(marginaleffects)
+library(interactions)
+library(gtsummary)
+library(performance)
+library(HLMdiag)
+select <- dplyr::select
+```
+
+Reading in data and parsing it to different dataframes
+
+```{r}
+df_raw <- read.csv("../data/exp_data/diss_data_prolific.csv") %>%
+  mutate(
+    date = format(as.Date(date, format = "%d/%m/%Y"), "%Y-%m-%d")
+  )
+
+# Subject level data
+subject_raw1 <- df_raw %>%
+  filter(date > as.Date("2025-03-23")) %>%
+  rowwise() %>%
+  do(data.frame(fromJSON(.$subject, flatten = T))) %>%
+  ungroup()
+
+# Condition information 
+condition_df <- data.frame(
+  condition = c("P", "Q", "R", "S"),
+  reward = c("low", "low", "high", "high"),
+  control = c("low", "high", "low", "high")
+)
+
+# Causal query information (correct causal links in each causal graph)
+causal_query_answers <- read.csv("causal_query_answers.csv")
+
+# Trial level data (timepoints within trials)
+upi_data <- subject_raw1 %>%
+  select(-c(cond_order, counter_balance_order, causal_query_structure, causal_query_relationship)) %>%
+  distinct() %>%
+  select(upi, condition) %>%
+  distinct() %>%
+  map_df(~rep(.x, each = 186))
+
+# Trial raw is the individual datapoints generated within each experimental round
+trial_raw <- df_raw %>% 
+  filter(date > as.Date("2025-03-23")) %>%
+  rowwise() %>%
+  do(data.frame(fromJSON(.$results, flatten = T))) %>%
+  ungroup() %>%
+  cbind(upi_data) %>%
+  unite("round", c(graph, cb_group), sep = "_", remove = FALSE) %>% # False so that counterbalance can be tracked
+  rename(
+    reward_region = reward # Rename this to not confuse with reward prevalence column in condition_df
+  ) %>%
+  full_join(condition_df, by = "condition") %>%
+  mutate(
+    trial_count = as.integer(trial_count),
+    trial_count = trial_count + 1, # Increase round count by one so that it starts from 1 instead of 0
+    condition = factor(condition, # Add condition labels 
+                       levels = c("P", "Q", "R", "S"), 
+                       labels = c("Low Reward Low Control", "Low Reward High Control", 
+                                  "High Reward Low Control", "High Reward High Control"))
+  ) 
+```
+
+# Concentration checks and exclusion criterion
+
+```{r}
+# Lost focus on trials for more than 10 timesteps 
+no_focus <- trial_raw %>%
+  group_by(upi) %>%
+  count(has_focus) %>%
+  filter(has_focus == 0 & n > 10) 
+
+# Took more than 40 minutes to complete the experiment 
+subject_times_raw <- subject_raw1 %>%
+  distinct(upi, start_time, end_time) %>%
+  mutate(
+    start = as.POSIXct(start_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    end = as.POSIXct(end_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    time = as.numeric(difftime(end, start, units = "mins"))
+  ) 
+
+long_time <- subject_times_raw %>%
+  filter(time > 40) 
+  
+# Participants who concentrated
+subject_concentration <- subject_raw1 %>%
+  select(-c(cond_order, counter_balance_order, causal_query_structure, causal_query_relationship)) %>%
+  distinct() %>%
+  # Filter out participants who had 3 or more false attempts on the task, self-reported being distracted, lost focus (on another tab or application) during the experiment, and took longer than 40 minutes to complete the experiment
+  filter(false_attempts < 3 & concentration == "yes" & upi != as.character(no_focus[1,1]) & !(upi %in% long_time$upi)) %>% 
+  select(upi)
+```
+
+# Tidying up data 
+
+Round_df: Rounds 1-6 level data e.g. number of interventions, causal structure identification 
+subject_df: Subject level data
+
+```{r}
+subject_raw2 <- subject_raw1 %>%
+  # Excluding participants who did not concentrate
+  inner_join(subject_concentration, by = "upi") %>%
+  # Matching causal query to see if it is correct 
+  mutate(
+    causal_query_relationship = ifelse(causal_query_relationship == "-1", "neg", "pos"),
+  ) %>%
+  unite("round", c(cond_order, counter_balance_order), sep = "_", remove = TRUE) %>%
+  unite("causal_query", c(causal_query_structure, causal_query_relationship), sep = "_", remove = TRUE) %>%
+  mutate( 
+    causal_identified = paste(round, causal_query) %in% 
+                        paste(causal_query_answers$round, causal_query_answers$causal_query)
+  ) %>%
+  # Adding informative condition columns 
+  full_join(condition_df, by = "condition") %>%
+  # Tallying hope scale data
+  select(-c(hope3, hope5, hope7, hope11)) %>%
+  mutate(
+    across(c(hope1:hope12, pre_control:post_difficulty, age, engagement), function(x) as.integer(x)),
+    across(c(trackpad, reward, control, upi), function(x) as.factor(x)),
+    hope_scale = rowSums(across(hope1:hope12))
+  ) %>%
+  # Removing redundant columns
+  select(-c(proid, condition:sigma, false_attempts, hope1:hope12, strategy:text_bug))
+```
+
+```{r}
+trial_df1 <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  group_by(upi, trial_count, round, condition, reward, control) %>%
+  summarise(
+    interventions = max(cum_int),
+    score = max(cum_trial_score) - max(cum_int),
+    successful_reward = sum(reward_region) 
+  ) %>%
+  ungroup()
+```
+
+```{r}
+round_df1 <- trial_df1 %>%
+  select(upi, round, trial_count, interventions, successful_reward, score, condition) %>%
+  full_join(subject_raw2, by = c("upi", "round")) %>%
+  mutate(
+    score = score.x,
+    final_score = score.y,
+    phase = ifelse(trial_count < 4, "training", "test"),
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control")
+  ) %>%
+  select(-c(score.x, score.y)) 
+```
+
+```{r}
+subject_df1 <- round_df1 %>%
+  select(upi, condition, reward, control, pre_control:engagement, hope_scale, final_score, start_time, end_time) %>%
+  distinct() %>%
+  mutate(
+    start = as.POSIXct(start_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    end = as.POSIXct(end_time, format="%Y-%m-%dT%H:%M:%OSZ", tz="UTC"),
+    time = as.numeric(difftime(end, start, units = "mins")),
+    age = as.integer(age),
+    gender = as.factor(gender),
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control")
+  ) 
+```
+
+# Demographics
+
+Average time taken for experiment
+
+```{r}
+mean(subject_df1$time)
+sd(subject_df1$time)
+```
+
+Engagement
+
+```{r}
+mean(subject_df1$engagement)
+sd(subject_df1$engagement)
+```
+
+Post-difficulty
+
+```{r}
+mean(subject_df1$post_difficulty)
+sd(subject_df1$post_difficulty)
+```
+
+Age and gender
+
+```{r}
+mean(subject_df1$age)
+sd(subject_df1$age)
+
+table(subject_df1$gender)
+```
+
+How many participants per condition
+
+```{r}
+subject_df1 %>%
+  count(condition)
+```
+
+# Overall descriptive statistics 
+
+Mean an SDs by condition:
+- Number of participants 
+- Perceived controllability
+- Number of interventions per round 
+- Number of successful reward 
+- Proportion of successful causal identification 
+
+```{r}
+descriptive_tab <- round_df1 %>%
+  filter(phase == "test") %>%
+  mutate(
+    causal_identified = as.integer(causal_identified)
+  ) %>%
+  group_by(upi, condition, pre_control, post_control) %>%
+  summarise(
+    interventions = mean(interventions),
+    successful_reward = mean(successful_reward),
+    causal_identified = mean(causal_identified)
+  ) %>%
+  ungroup() %>%
+  group_by(condition) %>%
+  summarise(
+    n = n(),
+    mean_pre_control = mean(pre_control),
+    sd_pre_control = sd(pre_control),
+    mean_post_control = mean(post_control),
+    sd_post_control = sd(post_control),
+    mean_interventions = mean(interventions),
+    sd_interventions = sd(interventions),
+    mean_successful_reward = mean(successful_reward),
+    sd_successful_reward = sd(successful_reward),
+    mean_causal_identified = mean(causal_identified),
+    mean_causal_identified = paste0(round(mean_causal_identified * 100, 1), "%"),
+    across(c(mean_pre_control:sd_successful_reward), ~ round(.x, 1)),
+    median_interventions = median(interventions)
+  )
+descriptive_tab
+```
+
+Median and mean for test rounds for all conditions 
+
+```{r}
+round_df1 %>%
+  filter(phase == "test") %>%
+  summarise(
+    median_interventions = median(interventions),
+    mean_interventions = mean(interventions)
+  )
+```
+
+
+# Subjective Control (self-report/perceived controllability)
+
+## Subjective Control Raw Data Plot
+
+```{r}
+subjective_control <- subject_df1 %>%
+  rename(
+    pre_pcontrol = pre_control,
+    post_pcontrol = post_control 
+  ) %>%
+  pivot_longer(cols = c(pre_pcontrol, post_pcontrol, pre_difficulty, post_difficulty), 
+               names_to = c("group", ".value"), 
+               names_sep = "_") %>%
+  mutate(
+    group = fct_recode(group,
+                       "test" = "post",
+                       "training" = "pre"),
+    group = fct_relevel(group, "training"),
+    control = fct_recode(control,
+                        "low_control" = "low",
+                        "high_control" = "high"),
+    control = fct_relevel(control, "high_control"),
+    reward = fct_recode(reward,
+                        "low_reward" = "low",
+                        "high_reward" = "high"),
+    reward = fct_relevel(reward, "high_reward"),
+    pcontrol_ordered = factor(pcontrol, levels = 0:10, ordered = TRUE),
+    upi = as.factor(upi)
+  )
+
+subjective_control_summary <- subjective_control %>%
+  group_by(condition, group) %>%
+  summarise(
+    mean = mean(pcontrol),
+    se = (sd(pcontrol))/(sqrt(length(pcontrol)))
+  ) %>%
+  mutate(
+    group = fct_relevel(group, "training"),
+  )
+
+subjective_control_plot <- ggplot() +
+  geom_bar(data = subjective_control_summary, aes(x = condition, y = mean, fill = group), stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(data = subjective_control_summary, aes(x = condition, y = mean, ymin = mean - se, ymax = mean + se, fill = group), width = 0.3, position = position_dodge(width = 0.9)) + 
+  geom_jitter(data = subjective_control, aes(x = condition, y = pcontrol, fill = group), position = position_jitterdodge(jitter.width = 0.3, dodge.width = 0.9), alpha = 0.3) +
+  scale_fill_manual(
+    name = NULL,
+    values = c("training" = "#029cd4", "test" = "#d9bc00"),
+    labels = c("training" = "Post-training responses", "test" = "Post-test responses")
+  ) +
+  scale_x_discrete(labels = c("Low Reward Low Control" = "Low Control\nSmall Reward Region\n(n = 21)", "Low Reward High Control" = "High Control\nSmall Reward Region\n(n = 25)", "High Reward Low Control" = "Low Control\nLarge Reward Region\n(n = 25)", "High Reward High Control" = "High Control\nLarge Reward Region\n(n = 22)")) +
+  scale_y_continuous(breaks = seq(0, 10, by = 2)) +
+  labs( x = "Condition", y = "Self-report Controllability") +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 10),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 10),   # Y-axis text size
+    legend.text = element_text(size = 10)   # Legend text size
+    )
+
+subjective_control_plot
+```
+
+```{r}
+subjective_control %>%
+  filter(group == "test") %>%
+  group_by(reward) %>%
+  summarise(
+    mean = mean(pcontrol)
+  )
+```
+
+```{r}
+subjective_control %>%
+  filter(group == "test") %>%
+  group_by(control) %>%
+  summarise(
+    mean = mean(pcontrol)
+  )
+```
+
+
+
+
+```{r}
+ggsave("../figures/analysis_figures/subject_control.png", subjective_control_plot, height = 5, width = 8, dpi = 600)
+```
+
+
+## Subjective Control Model
+
+### Ordinal regression model clm 
+
+```{r}
+subject_control_mdl1 <- clm(pcontrol_ordered ~ group + reward + control, data = subjective_control)
+
+summary(subject_control_mdl1)
+```
+
+```{r}
+exp(coef(subject_control_mdl1)[11])
+exp(coef(subject_control_mdl1)[12])
+exp(coef(subject_control_mdl1)[13])
+```
+
+Grouppost (1.3603, p < 0.0001): Post-test (compared to post-training) increases the odds of being in a higher category of perceived controllability by a factor of approximately 3.9. 
+
+rewardlow (-1.0182, p = 0.044): The low reward condition decreases the odds of being in a higher category by a factor of approximately 0.36, which is statistically significant at the 5% level.
+
+controllow (-1.3493, p = 0.008): The low control condition decreases the odds of being in a higher category by a factor of approximately 0.26, which is statistically significant at the 1% level.
+
+
+```{r}
+subjective_control_val <- subjective_control %>%
+  select(reward, control, group) %>%
+  distinct() %>%
+  expand_grid(pcontrol_ordered = 0:10) %>%
+  mutate(
+    pcontrol_ordered = factor(pcontrol_ordered, levels = 0:10, ordered = TRUE)
+  )
+  
+subjective_control_pred1 <- predict(object = subject_control_mdl1, 
+                                   newdata = subjective_control_val, 
+                                   se.fit = TRUE,
+                                   level = 0.95,
+                                   type = "prob") %>%
+  cbind(subjective_control_val)
+```
+
+```{r}
+subjective_control_pred1 %>%
+  ggplot() +
+  geom_point(aes(x = pcontrol_ordered, y = fit, col = group), position = position_dodge(width = 0.9), size = 2) +
+  geom_errorbar(aes(x = pcontrol_ordered, y = fit, ymin = fit - se.fit, ymax = fit + se.fit, col = group), position = position_dodge(width = 0.9), width = 0.5) +
+  facet_grid(reward~control)
+```
+
+### Linear mixed effects model
+
+```{r}
+subject_control_mdl2 <- lmer(pcontrol ~ group + reward + control + (1 | upi), data = subjective_control)
+
+model_parameters(subject_control_mdl2, method = "kr")
+```
+
+```{r}
+tab_model(subject_control_mdl2, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          pred.labels = c("Intercept",
+                          "Phase: Test",
+                          "Control: Low",
+                           "Reward region: Small"),
+          title = "Regression table for lmer model") 
+```
+
+
+### Mixed effects ordinal regression model clmm 
+
+```{r}
+subject_control_mdl3 <- clmm(pcontrol_ordered ~ group + control + reward  + (1|upi), data = subjective_control, Hess = TRUE, nAGQ=10)
+
+summary(subject_control_mdl3)
+```
+Estimates
+
+```{r}
+coef(subject_control_mdl3)[11:13] %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+SEs
+
+```{r}
+round(summary(subject_control_mdl3)$coefficients[11:13,"Std. Error"], 2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+Odds ratios 
+
+```{r}
+round(exp(coef(subject_control_mdl3)[11:13]), 2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+```{r}
+as.data.frame(round(exp(confint(subject_control_mdl3)[11:13,]), 2)) %>%
+  remove_rownames()
+```
+
+Threshold coefficients 
+
+```{r}
+as.data.frame(round(summary(subject_control_mdl3)$coefficients[1:10,c("Estimate", "Std. Error")], 2))
+```
+
+```{r}
+tab_model(subject_control_mdl3)
+```
+
+```{r}
+tbl_regression(subject_control_mdl3)
+```
+
+
+```{r}
+subjective_control_pred2 <- predict_response(model = subject_control_mdl3, 
+               type = "fixed",
+               terms = c("group", "reward", "control")) %>%
+  as.data.frame() %>%
+  rename(
+    reward = group,
+    control = facet,
+    phase = x,
+    pcontrol = response.level
+  ) %>%
+  mutate(
+    pcontrol = as.integer(pcontrol) - 1,
+    pcontrol_ordered = factor(pcontrol, levels = 0:10, ordered = TRUE),
+    phase = fct_relevel(phase, "training"),
+    control = fct_recode(control,
+                        "Low Control" = "low_control",
+                        "High Control" = "high_control"),
+    reward = fct_recode(reward,
+                        "Small Reward Region" = "low_reward",
+                        "Large Reward Region" = "high_reward"),
+  )
+```
+
+```{r}
+subjective_control_plot_mdl <- subjective_control_pred2 %>%
+  ggplot() +
+  geom_point(aes(x = pcontrol_ordered, y = predicted, col = phase), position = position_dodge(width = 0.8), size = 3) +
+  geom_errorbar(aes(x = pcontrol_ordered, y = predicted, ymin = conf.low, ymax = conf.high, col = phase), position = position_dodge(width = 0.8), width = 0.7) +
+  facet_grid(reward~control) +
+  labs(x = "Likert Scale Values (Perceived Controllability)", y = "Predicted Probabilities") +
+  scale_color_manual(
+    name = NULL,
+    values = c("training" = "#029cd4", "test" = "#d9bc00"),
+    labels = c("training" = "Post-training responses", "test" = "Post-test response")
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 15),  # X-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )
+
+
+subjective_control_plot_mdl
+```
+
+```{r}
+ggsave("../figures/analysis_figures/subject_control_mdl.png", subjective_control_plot_mdl, height = 7, width = 9, dpi = 600)
+```
+
+
+### Comparing fit of the three models 
+
+```{r}
+AIC(subject_control_mdl1, subject_control_mdl2, subject_control_mdl3)
+```
+
+# Control attempts - Number of interventions 
+
+```{r}
+round_intervention <- round_df1 %>%
+  filter(phase == "test") %>%
+  mutate(
+    upi = as.factor(upi)
+  )
+
+round_intervention_summary <- round_intervention %>%
+  group_by(reward, control) %>%
+  summarise(
+    mean_int = mean(interventions),
+    se_int = (sd(interventions))/(sqrt(length(interventions))),
+    mean_score = mean(score),
+    se_score = (sd(score))/(sqrt(length(score)))
+  ) 
+  
+round_intervention_plot <- ggplot() +
+  geom_bar(data = round_intervention_summary, aes(x = reward, fill = control, y = mean_int), stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(data = round_intervention_summary, aes(x = reward, fill = control, y = mean_int, ymin = mean_int - se_int, ymax = mean_int + se_int), width = 0.3, position = position_dodge(width = 0.9)) +
+  geom_jitter(data = round_intervention, aes(x = reward, fill = control, y = interventions), position = position_jitterdodge(jitter.width = 0.3, dodge.width = 0.9), alpha = 0.3) +
+  scale_fill_manual(
+    name = "Training Phase Control",
+    values = c("high" = "#029cd4", "low" = "#d9bc00"),
+    labels = c("high" = "High", "low" = "Low")
+  ) +
+  scale_x_discrete(
+    name = NULL,
+    labels = c("high" = "Large Reward Region", "low" = "Small Reward Region")
+    ) +
+  labs(y = "Number of interventions") +
+  theme_light() +
+  theme(
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.x = element_text(size = 15),   # X-axis text size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),   # Legend text size
+    legend.title = element_text(size = 12),
+    legend.position = "top"
+  )
+  
+round_intervention_plot
+```
+
+```{r}
+ggsave("../figures/analysis_figures/interventions.png", round_intervention_plot, height = 6, width = 9, dpi = 600)
+```
+
+## Number of interventions in test phase by condition - density chart
+
+```{r}
+round_intervention_density <- ggplot() + 
+  geom_density(data = round_df1, aes(x = interventions, fill = phase), alpha = 0.4, size = 0.7) +
+  facet_grid(control~reward) +
+  scale_fill_manual(
+    name = "Phase",
+  values = c("training" = "skyblue", "test" = "gold"),
+    labels = c("training" = "Training", "test" = "Test")
+  ) +
+  # coord_flip() +
+  labs(x = "Number of interventions", y = "Density") +
+  theme_light() 
+
+round_intervention_density
+```
+
+Plot for appendix? Bimodal for low control participants which suggests that there are individual differences in whether people persist in their helplessness.
+
+## Control attempts models 
+
+
+
+```{r}
+round_intervention_mdl_data <- round_intervention %>%
+  mutate(
+    interventions_z = scale(interventions)[,1],
+    age_z = scale(age)[,1],
+    control = fct_relevel(control, "high"),
+    reward = fct_relevel(reward, "high"),
+  )
+
+contrasts(round_intervention_mdl_data$control) <- contr.treatment(2)
+contrasts(round_intervention_mdl_data$reward) <- contr.treatment(2)
+contrasts(round_intervention_mdl_data$control)
+contrasts(round_intervention_mdl_data$reward)
+```
+
+## Did number of interventions change across test rounds? 
+
+```{r}
+trial_count_mdl1 <- round_intervention_mdl_data %>%
+  mutate(
+    trial_count = as.integer(trial_count) - 3
+  ) %>%
+  lmer(interventions ~ trial_count + (1 | upi), data = ., control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(trial_count_mdl1, ci_method="kr")
+```
+
+```{r}
+tab_model(trial_count_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions"),
+          pred.labels = c("Intercept",
+                          "Test round number"),
+          title = "Regression table for Intervention Model") 
+```
+
+Did not differ across test rounds, so collapsed across rounds for models. Report only trial_count parameter, rest put in appendix. 
+
+## Intervention models
+
+```{r}
+round_interventions_mdl1 <- lmer(interventions ~ reward + control + (1 | upi), data = round_intervention_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(round_interventions_mdl1, ci_method="kr")
+```
+
+```{r}
+round_interventions_mdl2 <- lmer(interventions ~ reward + control + age_z + trackpad + pre_control + causal_identified + hope_scale + (1 | upi), data = round_intervention_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(round_interventions_mdl2, ci_method="kr")
+```
+
+# Testing this model (using training phase interventions to predict test phase interventions, it is signficant, need to fix code)
+
+<!-- ```{r} -->
+<!-- round_interventions_mdl3 <- round_intervention_mdl_data %>% -->
+<!--   mutate( -->
+<!--     training_interventions = Detrimental + Inconsequential + Necessary + Redundant -->
+<!--   ) %>% -->
+<!--   lmer(interventions_z ~ training_interventions + reward * control + (1 | upi), data = ., control = lmerControl(optimizer = "bobyqa")) -->
+
+<!-- model_parameters(round_interventions_mdl3, ci_method="kr") -->
+<!-- ``` -->
+
+```{r}
+AIC(round_interventions_mdl1, round_interventions_mdl2)
+```
+
+```{r}
+anova(round_interventions_mdl1, round_interventions_mdl2)
+```
+
+## Assumption checks for linear model
+
+```{r fig.height=10}
+round_interventions_mdl2_asmp <- check_model(round_interventions_mdl2) %>%
+  plot() %>%
+  wrap_plots()
+
+
+#Save as image
+ggsave("../figures/analysis_figures/assumptions/interventions_mdl.png", round_interventions_mdl2_asmp, height = 17, width = 12, dpi = 600)
+```
+
+Level 1 Influential points
+
+```{r}
+suppressWarnings(round_inf1 <- hlm_influence(round_interventions_mdl2, level = 1))
+dotplot_diag(round_inf1$cooksd, cutoff = 1) + 
+  theme_minimal() +
+  labs(x = NULL, y = "Cooks Distance")
+```
+
+UPI cluster level influential points 
+
+```{r}
+suppressWarnings(round_inf2 <- hlm_influence(round_interventions_mdl2, level = "upi"))
+dotplot_diag(round_inf2$cooksd, cutoff = 1, index=round_inf2$upi) + 
+  theme_minimal() +
+  labs(x = NULL, y = "Cooks Distance")
+```
+
+
+```{r}
+tab_model(round_interventions_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          pred.labels = c("Intercept",
+                          "Control: Low",
+                          "Reward region: Small"),
+          title = "Regression table for Intervention Model") 
+```
+
+## Plotting models 
+
+```{r}
+cat_plot(round_interventions_mdl2	, pred = reward, modx = control)
+```
+
+```{r}
+round_interventions_pred1 <- predict_response(model = round_interventions_mdl1, 
+               type = "fixed",
+               terms = c("reward", "control")) %>%
+  as.data.frame() %>%
+  rename(
+    control = group,
+    reward = x
+  ) %>%
+  mutate(
+    control = fct_recode(control,
+                        "Low Control" = "low",
+                        "High Control" = "high"),
+    control = fct_relevel(control, "High Control"),
+    reward = fct_recode(reward,
+                        "Small Reward Region" = "low",
+                        "Large Reward Region" = "high"),
+    reward = fct_relevel(reward, "Large Reward Region"),
+    interventions = predicted
+  )
+
+round_intervention2 <- round_intervention %>%
+  mutate(
+    control = fct_recode(control,
+                        "Low Control" = "low",
+                        "High Control" = "high"),
+    control = fct_relevel(control, "High Control"),
+    reward = fct_recode(reward,
+                        "Small Reward Region" = "low",
+                        "Large Reward Region" = "high"),
+    reward = fct_relevel(reward, "Large Reward Region"),
+    interventions_z = scale(interventions)[,1],
+  )
+
+
+round_interventions_plot_mdl <- round_interventions_pred1 %>%
+  ggplot() +
+  geom_jitter(data = round_intervention2, aes(x = reward, y = interventions, fill = control), position = position_jitterdodge(jitter.width = 0.3, dodge.width = 0.9), alpha = 0.3) +
+  geom_point(aes(x = reward, y = interventions, col = control), position = position_dodge(width = 0.9), size = 6) +
+  geom_errorbar(aes(x = reward, y = interventions, ymin = conf.low, ymax = conf.high, col = control), position = position_dodge(width = 0.9), width = 0.4, size = 1) +
+  labs(x = NULL, y = "Interventions", legend = "Training Phase Control") +
+  scale_color_manual(
+    name = "Training Phase Control",
+    values = c("High Control" = "#029cd4", "Low Control" = "#d9bc00"),
+    labels = c("High Control" = "High", "Low Control" = "Low")
+  ) +
+  # scale_y_continuous(
+  #   limits = c(-2.5, 2.5),
+  #   breaks = seq(-2, 2, by = 1)
+  # ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "#f5efd7", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 15),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.text.x = element_text(size = 18),   # X-axis text size
+    axis.title.y = element_text(size = 18),  # Y-axis title size
+    axis.text.y = element_text(size = 18),   # Y-axis text size
+    legend.text = element_text(size = 18),   # Legend text size
+    legend.title = element_text(size = 18)   
+    ) +
+    guides(fill = "none")
+
+round_interventions_plot_mdl
+```
+
+```{r}
+ggsave("../figures/analysis_figures/interventions_mdl.png", round_interventions_plot_mdl, height = 5, width = 7, dpi = 600)
+```
+
+## Time step of first intervention
+
+```{r}
+intervention_timestep1 <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  filter(trial_count > 3 & (x_int == 1 | y_int == 1)) %>%
+  group_by(upi, trial_count) %>%
+  summarise(
+    timestep = min(step_counter)
+  ) 
+
+required_trials <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  filter(trial_count > 3 & (x_int == 1 | y_int == 1)) %>%
+  distinct(upi, condition, reward, control)%>%
+  crossing(trial_count = c(4:6))
+
+intervention_timestep2 <- required_trials %>%
+  left_join(intervention_timestep1, by = c("upi", "trial_count")) %>%
+  mutate(
+    timestep = ifelse(is.na(timestep), 0, timestep)
+    )
+
+intervention_timestep_summary <- intervention_timestep2 %>%
+  group_by(reward, control) %>%
+  summarise(
+    mean = mean(timestep),
+    se = (sd(timestep))/(sqrt(length(timestep)))
+  )
+
+intervention_timestep_plot <- ggplot() +
+  geom_bar(data = intervention_timestep_summary, aes(x = reward, fill = control, y = mean), stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(data = intervention_timestep_summary, aes(x = reward, fill = control, y = mean, ymin = mean - se, ymax = mean + se), width = 0.3, position = position_dodge(width = 0.9)) +
+  geom_jitter(data = intervention_timestep2, aes(x = reward, fill = control, y = timestep), position = position_jitterdodge(jitter.width = 0.3, dodge.width = 0.9), alpha = 0.3) +
+  scale_fill_manual(
+    name = "Training Phase Control",
+    values = c("high" = "#029cd4", "low" = "#d9bc00"),
+    labels = c("high" = "High", "low" = "Low")
+  ) +
+  scale_x_discrete(
+    name = NULL,
+    labels = c("high" = "Large Reward Region", "low" = "Small Reward Region")
+    ) +
+  labs(y = "Timestep of first intervention") +
+  theme_light() +
+  theme(
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),   # Legend text size
+    legend.title = element_text(size = 12),
+    legend.position = "top"
+  )
+
+intervention_timestep_plot
+```
+
+```{r}
+intervention_timestep2 %>%
+  group_by(control) %>%
+  summarise(
+    mean = mean(timestep),
+    sd = sd(timestep),
+    se = (sd(timestep))/(sqrt(length(timestep)))
+  )
+```
+
+
+
+```{r}
+ggsave("../figures/analysis_figures/interventions_timestep.png", intervention_timestep_plot, height = 6, width = 9, dpi = 600)
+```
+
+```{r}
+intervention_timestep_mdl_data <- intervention_timestep2 %>%
+  mutate(
+    timestep_z = scale(timestep)[,1],
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "high"),
+  )
+
+intervention_timestep_mdl1 <- lmer(timestep_z ~ control + reward + (1 | upi), data = intervention_timestep_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(intervention_timestep_mdl1, ci_method="kr")
+```
+
+```{r}
+tab_model(intervention_timestep_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          pred.labels = c("Intercept",
+                          "Control: Low",
+                           "Reward region: Small"),
+          title = "Regression table for lmer model") 
+```
+
+High control decreased average timestep of first intervention. More willing to intervene earlier if experienced with control in training phase. 
+
+# Success at task (Timesteps with Z in the reward region)
+
+## Success by condition
+
+```{r}
+reward_region <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  mutate( 
+    reward_region = as.integer(reward_region),
+    ) %>%
+  filter(trial_count > 3 & step_counter != 0) %>%
+  group_by(upi, trial_count, reward, control) %>%
+  summarise(
+    in_region = sum(reward_region)
+  ) %>%
+  ungroup()
+
+reward_region_summary <- reward_region %>%
+  group_by(reward, control) %>%
+  summarise(
+    mean = mean(in_region),
+    se = (sd(in_region))/(sqrt(length(in_region)))
+  )
+
+reward_region_plot <- ggplot() +
+  geom_bar(data = reward_region_summary, aes(x = reward, fill = control, y = mean), stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_errorbar(data = reward_region_summary, aes(x = reward, fill = control, y = mean, ymin = mean - se, ymax = mean + se), width = 0.3, position = position_dodge(width = 0.9)) +
+  geom_jitter(data = reward_region, aes(x = reward, fill = control, y = in_region), position = position_jitterdodge(jitter.width = 0.3, dodge.width = 0.9), alpha = 0.3) +
+  scale_x_discrete(
+    name = NULL,
+    labels = c("high" = "Large Reward Region", "low" = "Small Reward Region")
+  ) +
+  scale_fill_manual(
+    name = "Training Phase Control",
+    values = c("high" = "#029cd4", "low" = "#d9bc00"),
+    labels = c("high" = "High", "low" = "Low")
+  ) +
+  labs(y = "Number of timesteps with Z in the reward region") +
+  theme_light() +
+  theme(
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12),   # Legend text size
+    legend.title = element_text(size = 12),
+    legend.position = "top"
+  )
+  
+reward_region_plot
+```
+
+```{r}
+ggsave("../figures/analysis_figures/reward_region.png", reward_region_plot, height = 6, width = 9, dpi = 600)
+```
+
+Mean number across conditions during test phase
+
+```{r}
+round_df1 %>%
+  filter(phase == "test") %>%
+  summarise(
+    mean = mean(successful_reward),
+    sd = sd(successful_reward)
+  )
+```
+
+Note: Comparison analyses of test performance to baseline (zero control) and random control models moved to simulation_analysis.rmd file
+
+## Comparing conditions against each other
+
+```{r}
+reward_region_mdl_data <- reward_region %>%
+  mutate(
+    in_region_z = scale(in_region)[,1],
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "high"),
+  )
+
+contrasts(reward_region_mdl_data$control)
+contrasts(reward_region_mdl_data$reward)
+
+
+reward_region_mdl1 <- lmer(in_region ~ control + reward + (1 | upi), data = reward_region_mdl_data, control = lmerControl(optimizer = "bobyqa"))
+
+model_parameters(reward_region_mdl1, ci_method="kr")
+```
+
+```{r}
+tab_model(reward_region_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          pred.labels = c("Intercept",
+                          "Control: Low",
+                           "Reward region: Small"),
+          title = "Regression table for lmer model") 
+```
+
+High control increases performance, high reward also increases performance (marginally).  
+
+## Within round (timestep) success
+
+```{r}
+trial_condition_prop <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  filter(trial_count > 3 & step_counter != 0) %>%
+  mutate(
+    reward_region = as.integer(reward_region)
+  ) %>%
+  group_by(control, reward, step_counter) %>%
+  summarise(
+    prop = sum(reward_region)/n()
+  ) %>%
+  mutate(
+    reward = fct_recode(reward,
+                        "Small Reward Region" = "low",
+                        "Large Reward Region" = "high")
+  )
+
+trial_condition_plot <- trial_condition_prop %>%
+  ggplot() +
+  geom_point(aes(x = step_counter, y = prop, col = control)) +
+  geom_smooth(aes(x = step_counter, y = prop, fill = control), method = "lm", size = 0.9, linewidth = 0.5, color = "black", alpha = 0.1) +
+  facet_wrap(~reward) +
+  labs(x = "Timestep", y = "Proportion Scored") +
+  scale_fill_manual(values = c("high" = "#029cd4", "low" = "#d9bc00")) +
+  scale_color_manual(
+    name = "Training Phase Control",
+    values = c("high" = "#029cd4", "low" = "#d9bc00"),
+    labels = c("high" = "High", "low" = "Low")
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "white", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 16),
+    legend.position = "top",
+    # plot.background = element_rect(fill = "transparent", color = NA)
+    axis.title.x = element_text(size = 16),  # X-axis title size
+    axis.text.x = element_text(size = 16),   # X-axis text size
+    axis.title.y = element_text(size = 16),  # Y-axis title size
+    axis.text.y = element_text(size = 16),   # Y-axis text size
+    legend.text = element_text(size = 16),   # Legend text size
+    legend.title = element_text(size = 16)
+    ) +
+  guides(fill = "none")
+
+trial_condition_plot
+```
+
+## Adding random and no control simulations to the graph 
+
+```{r}
+## Preprocess simulation data
+random_control1 <- read.csv("../data/control_strategy_simulated_data/random_control_intervention_cond2.csv") %>%
+  mutate(
+    in_reward_region = reward,
+    control = "Random-control strategy",
+    reward = "Small Reward Region"
+  )
+random_control2 <- read.csv("../data/control_strategy_simulated_data/random_control_intervention_cond4.csv") %>%
+  mutate(
+    in_reward_region = reward,
+    control = "Random-control strategy",
+    reward = "Large Reward Region"
+  )
+no_control1 <- read.csv("../data/control_strategy_simulated_data/zero_control_intervention_cond2.csv") %>%
+  mutate(
+    in_reward_region = reward,
+    control = "No-control strategy",
+    reward = "Small Reward Region"
+  )
+no_control2 <- read.csv("../data/control_strategy_simulated_data/zero_control_intervention_cond4.csv") %>%
+  mutate(
+    in_reward_region = reward,
+    control = "No-control strategy",
+    reward = "Large Reward Region"
+  )
+
+strategy_prop <- rbind(random_control1, random_control2, no_control1, no_control2) %>%
+  filter(step_counter != "0") %>%
+  mutate(
+    in_reward_region = as.integer(ifelse(in_reward_region == "true", 1, 0))
+  ) %>%
+  group_by(control, reward, step_counter) %>%
+  summarise(
+    prop = sum(in_reward_region)/n()
+  ) 
+```
+
+```{r}
+## Combined plot
+full_condition_plot <- rbind(trial_condition_prop, strategy_prop) %>%
+  mutate(
+    control = fct_recode(control,
+                        "Low control group" = "low",
+                        "High control group" = "high"),
+    control = fct_relevel(control, 
+                        "High control group", 
+                        "Low control group",
+                        "Random-control strategy",
+                        "No-control strategy")
+  ) %>%
+  ggplot() +
+  geom_point(aes(x = step_counter, y = prop, col = control, 
+                 alpha = control, shape = control), size = 1.75) +
+  geom_smooth(data = . %>% filter(control %in% c("High control group", "Low control group")),
+            aes(x = step_counter, y = prop, fill = control),
+            method = "lm", linewidth = 0.6, se = TRUE, alpha = 0.1, col = "black") +
+  facet_wrap(~reward) +
+  labs(x = "Timestep", y = "Proportion Scored") +
+  scale_color_manual(
+    name = "Control",
+    values = c("High control group"      = "#029cd4", 
+               "Low control group"       = "#d9bc00",
+               "Random-control strategy" = "#9e9e9e",
+               "No-control strategy"     = "#c4956a")
+  ) +
+  scale_fill_manual(
+    name = "Control",
+    values = c("High control group"      = "#029cd4", 
+               "Low control group"       = "#d9bc00")
+  ) +
+  scale_shape_manual(
+    name = "Control",
+    values = c("High control group"      = 16,
+               "Low control group"       = 16,
+               "Random-control strategy" = 17,
+               "No-control strategy"     = 17)
+  ) +
+  scale_alpha_manual(
+    name = "Control",
+    values = c("High control group"      = 1,
+               "Low control group"       = 1,
+               "Random-control strategy" = 0.6,
+               "No-control strategy"     = 0.6)
+  ) +
+  theme_light() +
+  theme(
+    strip.background = element_rect(fill = "white", color = "black"),
+    strip.text = element_text(color = "black", face = "bold", size = 16),
+    legend.position = "top",
+    axis.title.x = element_text(size = 16),
+    axis.text.x = element_text(size = 16),
+    axis.title.y = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16)
+  ) +
+  guides(fill   = "none",
+       alpha  = "none",
+       shape  = guide_legend(nrow = 2, ncol = 2, title = NULL),
+       colour = guide_legend(nrow = 2, ncol = 2, title = NULL, override.aes = list(size = 3)))
+
+full_condition_plot
+```
+
+```{r}
+ggsave("../figures/analysis_figures/reward_region_timestep.png", full_condition_plot, height = 5, width = 7, dpi = 600)
+```
+
+```{r}
+trial_condition_mdl_data <- trial_condition_prop %>%
+  ungroup() %>%
+  mutate(
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "High Reward Region"),
+  )
+
+trial_condition_mdl1 <- lm(prop ~ (control + reward) * step_counter, data = trial_condition_mdl_data)
+
+summary(trial_condition_mdl1)
+```
+
+```{r}
+tab_model(trial_condition_mdl1, p.val = "kr", show.df = TRUE, show.stat = TRUE, show.se = TRUE,
+          dv.labels = c("Number of interventions (z-scored)"),
+          # pred.labels = c("Intercept",
+          #                 "Phase: Test",
+          #                 "Control: Low",
+          #                  "Reward region: Small"),
+          title = "Regression table for lmer model") 
+```
+
+
+- Proportion increases as timestep increases
+- High reward increased proportion
+- High control increased proportion
+- High control * timestep interaction: Steeper increase in time step if high control at average reward
+
+# Types of control/intervention
+
+```{r}
+trial_df2 <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  mutate(
+    # Swap x_val and y_val
+    temp_val = ifelse(cb_group == "B", x_val, x_val),
+    x_val = ifelse(cb_group == "B", y_val, x_val),
+    y_val = ifelse(cb_group == "B", temp_val, y_val),
+    
+    # Swap x_int and y_int
+    temp_int = ifelse(cb_group == "B", x_int, x_int),
+    x_int = ifelse(cb_group == "B", y_int, x_int),
+    y_int = ifelse(cb_group == "B", temp_int, y_int),
+    
+    # Changing to 1s and 0s for reward_region
+    reward_region = as.integer(reward_region),
+    
+    # Changing name labels for trial_count for plotting
+    trial_count = factor(trial_count, 
+                       levels = c("1", "2", "3", "4", "5", "6"), 
+                       labels = c("Training R1", "Training R2", "Training R3", "Test R1", "Test R2", "Test R3"))
+  ) %>%
+  select(-c(x_held, y_held, z_int, cum_int:cum_trial_score, round, cb_group, has_focus, temp_val, temp_int))
+```
+
+## Successful interventions: Proportion of interventions that *caused Z to move into the reward region during the next step 
+
+Not always caused, might have just been lucky and it lined up
+
+```{r}
+successful_intervention <- trial_df2 %>%
+  group_by(upi, trial_count) %>%
+  mutate(
+    reward_region_lead = lead(reward_region),
+    z_lead = lead(z_val),
+    intervention = x_int + y_int,
+    condition = fct_relevel(condition, "High Reward High Control", "Low Reward High Control", "High Reward Low Control", "Low Reward Low Control")
+  ) %>%
+  filter(step_counter != 0 
+         # & step_counter != 30
+         ) %>%
+  ungroup() %>%
+  mutate(
+    reward_region_lead = ifelse(is.na(reward_region_lead), 0, reward_region_lead),
+    z_lead = ifelse(is.na(z_lead), 0, z_lead)
+  )
+
+successful_intervention_prop <- successful_intervention %>%
+  filter(str_detect(as.character(trial_count), "Test"), intervention == "1") %>%
+  group_by(condition) %>%
+  count(reward_region_lead) %>%
+  mutate(
+    proportion = n / sum(n),
+    reward_region_lead = as.factor(reward_region_lead)
+    )
+
+successful_intervention_prop %>%
+  summarise(
+    sum = sum(n)
+  )
+```
+
+```{r}
+successful_intervention %>%
+  filter(str_detect(as.character(trial_count), "Test"), intervention == "1") %>%
+  group_by(control) %>%
+  count(reward_region_lead) %>%
+  mutate(
+    proportion = n / sum(n),
+    )
+```
+
+```{r}
+successful_intervention_plot <- successful_intervention_prop %>%
+  ggplot(aes(x = condition, y = proportion, fill = reward_region_lead)) +
+  geom_col(position = "stack", width = 0.75) +
+  # geom_hline(yintercept = 0.25, linetype = "dashed", color = "black", size = 0.8, alpha = 0.4) +
+  geom_text(aes(label = paste0(round(proportion, 3) * 100, "%")),
+            size = 4, 
+            position = "stack", 
+            vjust = 2, 
+            color = ifelse(successful_intervention_prop$reward_region_lead == "1", 'black', 'white')) +
+  scale_fill_manual("reward_region_lead",
+                    values = c("0" = "#ff6c3b",
+                               "1" = "#7ad658"),
+                    labels=c("0" = "Unsuccessful",
+                             "1" = "Successful"),
+                    name = NULL) +
+  labs(x = NULL, y = "Proportion", title = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = c("Low Reward Low Control" = "Low Control\nSmall Reward Region\n(n = 947)", "Low Reward High Control" = "High Control\nSmall Reward Region\n(n = 1476)", "High Reward Low Control" = "Low Control\nLarge Reward Region\n(n = 1298)", "High Reward High Control" = "High Control\nLarge Reward Region\n(n = 1340)")) +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 12),   # X-axis text size
+    axis.title.y = element_text(size = 15),  # Y-axis title size
+    axis.text.y = element_text(size = 12),   # Y-axis text size
+    legend.text = element_text(size = 12)   # Legend text size
+    )  
+
+successful_intervention_plot
+```
+
+```{r}
+ggsave("../figures/analysis_figures/successful_intervention.png", successful_intervention_plot, height = 4, width = 9, dpi = 600)
+```
+
+## Successful intervention model 
+
+```{r}
+successful_intervention_data <- successful_intervention %>%
+  filter(intervention == 1) %>%
+  mutate(
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "high")
+  )
+
+successful_intervention_mdl1 <- glmer(reward_region_lead ~ control + reward + (1 | upi), family = "binomial", data = successful_intervention_data)
+
+summary(successful_intervention_mdl1)
+```
+
+Estimates
+
+```{r}
+fixef(successful_intervention_mdl1) %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+SEs
+
+```{r}
+summary(successful_intervention_mdl1)$coefficients[,"Std. Error"] %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+Odds ratios 
+
+```{r}
+fixef(successful_intervention_mdl1) %>%
+  exp() %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+```{r}
+tab_model(successful_intervention_mdl1)
+```
+
+## Counterfactual Analysis: For all interventions, how would the outcome change if the intervention did not take place? 
+
+Moved to separate file for analysis: counterfactual_analysis_v2.rmd
+
+# Causal relationship identification
+
+## Were participants able to identify a causal link? 
+
+```{r}
+causal_link_prop1 <- round_df1 %>%
+  mutate(
+    phase = ifelse(trial_count %in% c(1:3), "Training", "Test"),
+    phase = relevel(as.factor(phase), ref = "Training")
+  ) %>%
+  group_by(phase) %>%
+  summarise(
+    true = sum(causal_identified == TRUE)/n(),
+    false = sum(causal_identified == FALSE)/n()
+  ) %>%
+  pivot_longer(cols = c(true, false), names_to = "causal_identification", values_to = "prop")
+
+causal_link_plot1 <- causal_link_prop1 %>%
+  ggplot(aes(x = phase, y = prop, fill = causal_identification)) +
+  geom_col(position = "stack", width = 0.75) +
+  geom_text(aes(label = paste0(round(prop, 3) * 100, "%")), 
+            size = 4, 
+            position = "stack", 
+            vjust = 2, 
+            color = ifelse(causal_link_prop1$causal_identification == "true", 'black', 'white')) +
+  geom_hline(yintercept = 0.25, linetype = "dashed", color = "black", size = 0.8, alpha = 0.4) +
+  scale_fill_manual("causal_identification", values = c("#ff6c3b", "#7ad658"), labels=c("No", "Yes"), name = "Identified") +
+  labs(x = NULL, y = NULL, title = "Causal Structure Identification by Experiment Phase") +
+  scale_y_continuous(labels = scales::percent) +
+  # scale_x_discrete(labels = c("Low Reward Low Control" = "Low Reward\nLow Control", "Low Reward High Control" = "Low Reward\nHigh Control", "High Reward Low Control" = "High Reward\nLow Control", "High Reward High Control" = "*High Reward\nHigh Control")) +
+  theme_light() +
+  theme(
+    strip.text.x = element_text(size = 10, colour = "white")
+    )  
+
+causal_link_plot1
+```
+
+## Were participants able to identify causal links altogether?
+
+```{r}
+subset(round_df1, trial_count %in% c(1,2,3)) %>%
+  {binom.test(x = sum(.$causal_identified), n = nrow(.), p = 0.25)}
+```
+
+```{r}
+subset(round_df1, trial_count %in% c(4,5,6)) %>%
+  {binom.test(x = sum(.$causal_identified), n = nrow(.), p = 0.25)}
+```
+
+## Binomial test for each phase X condition combination 
+
+```{r}
+binom_causal <- function(manipulation, phase) {
+  # Filter the data frame based on the condition that the score is above the threshold
+  
+  if (phase == "training") {
+    # Filter for trial_count between 1 and 3 (for training)
+    filtered_data <- filter(round_df1, condition == manipulation & phase == "training")
+  } else {
+    # Filter for trial_count between 4 and 6 (for other rounds)
+    filtered_data <- filter(round_df1, condition == manipulation & phase == "test")
+  }
+
+  result <- binom.test(x = sum(filtered_data$causal_identified), n = nrow(filtered_data), p = 0.25)
+
+  return(result)
+}
+```
+
+Training Phase
+
+```{r}
+binom_causal("Low Reward Low Control", "training")
+```
+
+```{r}
+binom_causal("Low Reward High Control", "training")
+```
+
+```{r}
+binom_causal("High Reward Low Control", "training")
+```
+
+```{r}
+binom_causal("High Reward High Control", "training")
+```
+
+Test Phase
+
+```{r}
+binom_causal("Low Reward Low Control", "test")
+```
+
+```{r}
+binom_causal("Low Reward High Control", "test")
+```
+
+```{r}
+binom_causal("High Reward Low Control", "test")
+```
+
+```{r}
+binom_causal("High Reward High Control", "test")
+```
+
+
+## Causal linkidentification by phase and condition 
+
+```{r}
+causal_link_prop2 <- round_df1 %>%
+  group_by(phase, condition) %>%
+  summarise(
+    true = sum(causal_identified == TRUE)/n(),
+    false = sum(causal_identified == FALSE)/n()
+  ) %>%
+  pivot_longer(cols = c(true, false), names_to = "causal_identification", values_to = "prop") %>%
+  filter(phase == "training")
+
+causal_link_plot2 <- causal_link_prop2 %>%
+  ggplot(aes(x = condition, y = prop, fill = causal_identification)) +
+  geom_col(position = "stack", width = 0.75) +
+  geom_text(aes(label = paste0(round(prop, 3) * 100, "%")), 
+            size = 4, 
+            position = "stack", 
+            vjust = 2,
+            color = ifelse(causal_link_prop2$causal_identification == "true", 'black', 'white')) +
+  geom_hline(yintercept = 0.25, linetype = "dashed", color = "black", size = 0.8, alpha = 0.4) +
+  scale_fill_manual("causal_identification", values = c("#ff6c3b", "#7ad658"), labels=c("No", "Yes"), name = "Identified") +
+  labs(x = NULL, y = NULL, title = "Causal Structure Identification (Training Phase)") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = c("Low Reward Low Control" = "*Small Reward Region\nLow Control", "Low Reward High Control" = "Small Reward Region\nHigh Control", "High Reward Low Control" = "Large Reward Region\nLow Control", "High Reward High Control" = "*Large Reward Region\nHigh Control")) +
+  theme_light() +
+  theme(
+    strip.text.x = element_text(size = 10, colour = "white")
+    )  
+
+causal_link_prop3 <- round_df1 %>%
+  group_by(phase, condition) %>%
+  summarise(
+    true = sum(causal_identified == TRUE)/n(),
+    false = sum(causal_identified == FALSE)/n(),
+    n = n()
+  ) %>%
+  pivot_longer(cols = c(true, false), names_to = "causal_identification", values_to = "prop") %>%
+  filter(phase == "test")
+
+causal_link_prop3
+```
+
+```{r}
+causal_link_plot3 <- causal_link_prop3 %>%
+  ggplot(aes(x = condition, y = prop, fill = causal_identification)) +
+  geom_col(position = "stack", width = 0.75) +
+  geom_text(aes(label = paste0(round(prop, 3) * 100, "%")), 
+            size = 4, 
+            position = "stack", 
+            vjust = ifelse(causal_link_prop3$condition == "High Reward Low Control" & causal_link_prop2$causal_identification == "true", 3, 2), 
+            color = ifelse(causal_link_prop2$causal_identification == "true", 'black', 'white')) +
+  geom_hline(yintercept = 0.25, linetype = "dashed", color = "black", size = 0.8, alpha = 0.4) +
+  scale_fill_manual("causal_identification", values = c("#ff6c3b", "#7ad658"), labels=c("No", "Yes"), name = "Identified") +
+  labs(x = NULL, y = NULL, title = NULL) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_discrete(labels = c("Low Reward Low Control" = "*Low Control\nSmall Reward", "Low Reward High Control" = "*High Control\nSmall Reward", "High Reward Low Control" = "Low Control\nLarge Reward", "High Reward High Control" = "High Control\nLarge Reward")) +
+  theme_light() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(size = 16),   # X-axis text size
+    axis.title.y = element_text(size = 16),  # Y-axis title size
+    axis.text.y = element_text(size = 16),   # Y-axis text size
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16)
+    )  
+
+causal_link_plot3
+```
+
+```{r}
+ggsave("../figures/analysis_figures/causal_identification.png", causal_link_plot3, height = 4, width = 8, dpi = 600)
+```
+
+```{r}
+causal_link_plot4 <- causal_link_plot2 / causal_link_plot3
+causal_link_plot4
+```
+
+
+
+```{r}
+causal_link_data <- round_df1 %>%
+  filter(trial_count > 3) %>%
+  mutate(
+    control = fct_relevel(as.factor(control), "high"),
+    reward = fct_relevel(as.factor(reward), "high"),
+  )
+  
+causal_link_mdl1 <- glmer(causal_identified ~ control + reward + (1 | upi), data = causal_link_data, family = "binomial")
+summary(causal_link_mdl1)
+```
+
+Estimates
+
+```{r}
+fixef(causal_link_mdl1) %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+SEs
+
+```{r}
+summary(causal_link_mdl1)$coefficients[,"Std. Error"] %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+Odds ratios 
+
+```{r}
+fixef(causal_link_mdl1) %>%
+  exp() %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+```{r}
+confint(causal_link_mdl1, method = "Wald")[2:4,] %>%
+  exp() %>%
+  round(2) %>%
+  as.data.frame() %>%
+  remove_rownames()
+```
+
+```{r}
+tab_model(causal_link_mdl1)
+```
+
+# Hope scale correlation
+
+```{r}
+hope_scale <- round_df1 %>%
+  filter(trial_count > 3) %>%
+  group_by(upi, condition, hope_scale) %>%
+  summarise(
+    mean = mean(interventions)
+  )
+
+hope_scale_plot <- hope_scale %>%
+  ggplot(aes(x = hope_scale, y = mean)) +
+  geom_point(color = "#028a9b") +
+  geom_smooth(method = "lm", alpha = 0.2, size = 0.9, color = "darkgrey", linewidth = 0.8) +
+  # facet_wrap(~condition) +
+  labs(x = "Hope Scale Score", y = "Average number of interventions") +
+  theme_light()
+hope_scale_plot
+```
+
+```{r}
+ggsave("../figures/analysis_figures/hope_scale.png", hope_scale_plot, height = 5, width = 7, dpi = 600)
+```
+
+```{r}
+hope_scale %>%
+  ggplot(aes(x = hope_scale, y = mean)) +
+  geom_point(color = "#028a9b") +
+  geom_smooth(method = "lm", alpha = 0.2, size = 0.9, color = "darkgrey", linewidth = 0.8) +
+  facet_wrap(~condition) +
+  labs(x = "Hope Scale Score", y = "Number of interventions performed (averaged across rounds)") +
+  theme_light()
+```
+
+```{r}
+cor.test(hope_scale$hope_scale, hope_scale$mean)
+```
+
+# Raw data (for appendix)
+
+```{r}
+# Partition each condition into two for plotting 
+trial_partition <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  select(condition, upi) %>%
+  distinct() %>%
+  group_by(condition) %>%
+  mutate(
+    half = rep(1:2, each = ceiling(n() / 2))[1:n()]
+  )
+
+# More data processing (pivot longer six separate columns)
+trial_df3 <- trial_raw %>%
+  inner_join(subject_concentration, by = "upi") %>%
+  mutate(
+    # Changing to 1s and 0s for reward_region
+    reward_region = as.integer(reward_region),
+    phase = ifelse(trial_count %in% c(1:3), "training", "test"),
+    graph = paste(graph, cb_group, sep = ""),
+    
+    # Changing name labels for trial_count for plotting
+    trial_count = factor(trial_count, 
+                       levels = c("1", "2", "3", "4", "5", "6"), 
+                       labels = c("Training R1", "Training R2", "Training R3", "Test R1", "Test R2", "Test R3"))
+  ) %>%
+  select(-c(x_held, y_held, z_int, cum_int:cum_trial_score, round, has_focus, cb_group)) %>%
+  rename(
+    z_int = reward_region
+  ) %>%
+  pivot_longer(cols = c(x_val, y_val, z_val, x_int, y_int, z_int), 
+               names_to = c("group", ".value"), 
+               names_sep = "_") %>%
+  inner_join(trial_partition, by = c("upi", "condition"))
+
+# Making labels 
+trial_df_label  = trial_df3 %>% 
+  select(upi, phase, condition, graph, trial_count) %>%
+  distinct() %>%
+  mutate(
+    step_counter = 3,
+    val = 85,
+    graph = str_c("Graph ", graph)
+  ) %>%
+  inner_join(trial_partition, by = c("upi", "condition"))
+```
+
+Plot function
+
+```{r}
+plot_partitioned_trials <- function(phase_input, condition_input, partition_input, lower, upper) {
+  trial_df3 %>%
+    filter(phase == phase_input,
+           condition == condition_input,
+           half == partition_input) %>%
+    ggplot() +
+    geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = lower, ymax = upper), fill = "#b0ed3e", alpha = 0.01) +
+    geom_line(aes(x = step_counter, y = val, col = group)) +
+    geom_point(data = . %>% filter(int == 1), aes(x = step_counter, y = val, col = group), size = 1) +
+    
+    geom_label(
+      data = trial_df_label %>%
+        filter(phase == phase_input,
+               condition == condition_input,
+               half == partition_input),
+      aes(x = step_counter, y = val, label = graph),
+      inherit.aes = FALSE,
+      size = 4, 
+      hjust = 0.5, 
+      vjust = 0.5
+    ) +
+    
+    scale_color_manual(
+      name = "Variable",
+      values = c("x" = "#0000ff", "y" = "#ff0000", "z" = "#1eae1e"),
+      labels = c("x" = "X", "y" = "Y", "z" = "Z")
+    ) +
+    facet_grid(upi ~ trial_count) +
+    labs(title = NULL, x = "Time Step", y = "Value") +
+    theme_light() +
+    theme(
+      legend.position = "none",
+      strip.background = element_rect(fill = "#f5efd7", color = "black"),
+      strip.text = element_text(color = "black", face = "bold", size = 12)
+    )
+}
+```
+
+## High reward high control
+
+```{r}
+hchr_training1 <- plot_partitioned_trials("training", "High Reward High Control", 1, 30, 70)
+hchr_training2 <- plot_partitioned_trials("training", "High Reward High Control", 2, 30, 70)
+hchr_test1 <- plot_partitioned_trials("test", "High Reward High Control", 1, 30, 70)
+hchr_test2 <- plot_partitioned_trials("test", "High Reward High Control", 2, 30, 70)
+
+ggsave("../figures/analysis_figures/raw_data/hchr_training1.png", hchr_training1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/hchr_training2.png", hchr_training2, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/hchr_test1.png", hchr_test1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/hchr_test2.png", hchr_test2, height = 16, width = 12, dpi = 600)
+```
+
+## Low reward high control
+
+```{r}
+hclr_training1 <- plot_partitioned_trials("training", "Low Reward High Control", 1, 40, 60)
+hclr_training2 <- plot_partitioned_trials("training", "Low Reward High Control", 2, 40, 60)
+hclr_test1 <- plot_partitioned_trials("test", "Low Reward High Control", 1, 40, 60)
+hclr_test2 <- plot_partitioned_trials("test", "Low Reward High Control", 2, 40, 60)
+
+ggsave("../figures/analysis_figures/raw_data/hclr_training1.png", hclr_training1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/hclr_training2.png", hclr_training2, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/hclr_test1.png", hclr_test1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/hclr_test2.png", hclr_test2, height = 16, width = 12, dpi = 600)
+```
+
+# High reward low control
+
+```{r}
+lchr_training1 <- plot_partitioned_trials("training", "High Reward Low Control", 1, 30, 70)
+lchr_training2 <- plot_partitioned_trials("training", "High Reward Low Control", 2, 30, 70)
+lchr_test1 <- plot_partitioned_trials("test", "High Reward Low Control", 1, 30, 70)
+lchr_test2 <- plot_partitioned_trials("test", "High Reward Low Control", 2, 30, 70)
+
+ggsave("../figures/analysis_figures/raw_data/lchr_training1.png", lchr_training1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/lchr_training2.png", lchr_training2, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/lchr_test1.png", lchr_test1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/lchr_test2.png", lchr_test2, height = 16, width = 12, dpi = 600)
+```
+
+
+## Low reward low control
+
+```{r}
+lclr_training1 <- plot_partitioned_trials("training", "Low Reward Low Control", 1, 40, 60)
+lclr_training2 <- plot_partitioned_trials("training", "Low Reward Low Control", 2, 40, 60)
+lclr_test1 <- plot_partitioned_trials("test", "Low Reward Low Control", 1, 40, 60)
+lclr_test2 <- plot_partitioned_trials("test", "Low Reward Low Control", 2, 40, 60)
+
+ggsave("../figures/analysis_figures/raw_data/lclr_training1.png", lclr_training1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/lclr_training2.png", lclr_training2, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/lclr_test1.png", lclr_test1, height = 16, width = 12, dpi = 600)
+ggsave("../figures/analysis_figures/raw_data/lclr_test2.png", lclr_test2, height = 16, width = 12, dpi = 600)
+```
+
+
+
+
+

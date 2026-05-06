@@ -1,0 +1,212 @@
+---
+title: "Dissertation_simulation"
+output: html_document
+date: "2025-04-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+
+```{r}
+library(tidyverse)
+```
+
+# Full version with 30 timepoints 
+
+```{r}
+df1 <- read.csv("../data/figure_simulated_data/simulated_high_control_t30.csv") %>%
+  mutate(
+    control = "high"
+  )
+
+df2 <- read.csv("../data/figure_simulated_data/simulated_low_control_t30.csv") %>%
+  mutate(
+    control = "low"
+  )
+
+df_full <- rbind(df1, df2) %>%
+  rename(
+    reward_region = reward # Rename this to not confuse with reward prevalence column in condition_df
+  ) %>%
+  mutate(
+    trial_count = as.integer(trial_count),
+    trial_count = trial_count + 1, # Increase round count by one so that it starts from 1 instead of 0
+
+    reward_small = ifelse(reward_region == "true", 1, 0),
+    reward_large = ifelse(z_val < 70 & z_val > 30, 1, 0),
+    z_int = ifelse(reward_small == 0 & reward_large == 1, 2, ifelse(reward_small == 1 & reward_large == 1, 1, 0)),
+    
+    control = fct_recode(control,
+                         "High Control" = "high",
+                         "Low Control" = "low"),
+    
+    graph = fct_recode(as.factor(graph),
+                       "Graph 1A" = "1",
+                       "Graph 2A" = "2",
+                       "Graph 3A" = "3",
+                       "Graph 4A" = "4",
+                       "Graph 5A" = "5",
+                       "Graph 6A" = "6"),
+  )  %>%
+  select(-c(x_held, y_held, cum_int:cum_trial_score, cb_group, has_focus, reward_region)) %>%
+  pivot_longer(cols = c(x_val, y_val, z_val, x_int, y_int, z_int), 
+               names_to = c("group", ".value"), 
+               names_sep = "_") 
+```
+
+
+```{r}
+p1 <- ggplot(data = df_full %>% filter(graph %in% c("Graph 1A", "Graph 2A", "Graph 3A"))) +
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 40, ymax = 60), fill = "#b0ed3e", alpha = 0.01) +
+  geom_hline(yintercept = 30, linetype = "dashed", color = "#78a12b", size = 0.8, alpha = 0.5) +
+  geom_hline(yintercept = 70, linetype = "dashed", color = "#78a12b", size = 0.8, alpha = 0.5) +
+  
+  # Optimal adjustments for X
+  geom_hline(aes(yintercept = ifelse(graph == "Graph 1A", -25, -50)), linetype = "dashed", color = "#7878ff") +
+  
+  # Optimal adjustments for X
+  geom_hline(aes(yintercept = ifelse(graph == "Graph 3A", -25, 50)), linetype = "dashed", color = "#ff6969") +
+
+  
+  geom_line(aes(x = step_counter, y = val, col = group)) +
+  geom_point(data = . %>% filter(int == 1 & group != "z"), aes(x = step_counter, y = val, col = group), size = 1) +
+  geom_point(data = . %>% filter(int == 1 & group == "z"), aes(x = step_counter, y = val, col = group), size = 1.5) +
+  geom_point(data = . %>% filter(int == 2 & group == "z"), aes(x = step_counter, y = val, col = group), size = 1) +
+  scale_color_manual(
+    name = "Variable",
+    values = c("x" = "#0000ff", "y" = "#ff0000", "z" ="#1eae1e"),
+    labels = c("x" = "X", "y" = "Y", "z" = "Z")
+  ) +
+  scale_x_continuous(breaks = c(0, 5, 10, 15, 20, 25, 30)) +
+  scale_y_continuous(breaks = c(-100, -50, 0, 50, 100)) +  # Set y-axis ticks
+
+  facet_grid(graph~control) +
+
+  labs(title = NULL, x = "Time Step", y = "Value") +
+  theme_light() +
+  theme(legend.position = "none",
+        strip.background = element_rect(fill = "#f5efd7", color = "black"),
+        strip.text = element_text(color = "black", face = "bold", size = 10),
+        strip.text.y = element_blank(),        # hides row facet labels (graph)
+        strip.background.y = element_blank())
+p1
+```
+
+```{r}
+p2 <- df_full %>%
+  filter(graph %in% c("Graph 4A", "Graph 5A", "Graph 6A")) %>%
+  ggplot() +
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 40, ymax = 60), fill = "#b0ed3e", alpha = 0.01) +
+  geom_hline(yintercept = 30, linetype = "dashed", color = "#78a12b", size = 0.8, alpha = 0.5) +
+  geom_hline(yintercept = 70, linetype = "dashed", color = "#78a12b", size = 0.8, alpha = 0.5) +
+  
+  # Optimal adjustments for X
+  geom_hline(aes(yintercept = -50), linetype = "dashed", color = "#7878ff") +
+  
+  # Optimal adjustments for X
+  geom_hline(aes(yintercept = ifelse(graph == "Graph 4A", 100, ifelse(graph == "Graph 5A", -100, -75))), linetype = "dashed", color = "#ff6969") +
+  
+  geom_line(aes(x = step_counter, y = val, col = group)) +
+  geom_point(data = . %>% filter(int == 1 & group != "z"), aes(x = step_counter, y = val, col = group), size = 1) +
+  geom_point(data = . %>% filter(int == 1 & group == "z"), aes(x = step_counter, y = val, col = group), size = 1.5) +
+  geom_point(data = . %>% filter(int == 2 & group == "z"), aes(x = step_counter, y = val, col = group), size = 1) +
+  scale_color_manual(
+    name = "Variable",
+    values = c("x" = "#0000ff", "y" = "#ff0000", "z" ="#1eae1e"),
+    labels = c("x" = "X", "y" = "Y", "z" = "Z")
+  ) +
+  scale_x_continuous(breaks = c(0, 5, 10, 15, 20, 25, 30)) +
+  facet_grid(graph~control) +
+  labs(title = NULL, x = "Time Step", y = "Value") +
+  theme_light() +
+  theme(legend.position = "none",
+        strip.background = element_rect(fill = "#f5efd7", color = "black"),
+        strip.text = element_text(color = "black", face = "bold", size = 10),
+        strip.text.y = element_blank(),        # hides row facet labels (graph)
+        strip.background.y = element_blank())
+p2
+```
+
+```{r}
+ggsave("../figures/figure_simulation/simulated_plot_t30_1.png", p1, height = 6, width = 10, dpi = 600)
+ggsave("../figures/figure_simulation/simulated_plot_t30_2.png", p2, height = 6, width = 10, dpi = 600)
+```
+
+# Small version with 15 time points
+
+```{r}
+df1 <- read.csv("../data/figure_simulated_data/simulated_high_control_t15.csv") %>%
+  mutate(
+    control = "high"
+  )
+
+df2 <- read.csv("../data/figure_simulated_data/simulated_low_control_t15.csv") %>%
+  mutate(
+    control = "low"
+  )
+
+df_full <- rbind(df1, df2) %>%
+  rename(
+    reward_region = reward # Rename this to not confuse with reward prevalence column in condition_df
+  ) %>%
+  mutate(
+    trial_count = as.integer(trial_count),
+    trial_count = trial_count + 1, # Increase round count by one so that it starts from 1 instead of 0
+
+    reward_small = ifelse(reward_region == "true", 1, 0),
+    reward_large = ifelse(z_val < 70 & z_val > 30, 1, 0),
+    z_int = ifelse(reward_small == 0 & reward_large == 1, 2, ifelse(reward_small == 1 & reward_large == 1, 1, 0)),
+    
+    control = fct_recode(control,
+                         "High Control" = "high",
+                         "Low Control" = "low"),
+    
+    graph = fct_recode(as.factor(graph),
+                       "Graph 1A" = "1",
+                       "Graph 2A" = "2",
+                       "Graph 3A" = "3",
+                       "Graph 4A" = "4",
+                       "Graph 5A" = "5",
+                       "Graph 6A" = "6"),
+  )  %>%
+  select(-c(x_held, y_held, cum_int:cum_trial_score, cb_group, has_focus, reward_region)) %>%
+  pivot_longer(cols = c(x_val, y_val, z_val, x_int, y_int, z_int), 
+               names_to = c("group", ".value"), 
+               names_sep = "_") 
+```
+
+```{r}
+p3 <- df_full %>%
+  ggplot() +
+  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 40, ymax = 60), fill = "#b0ed3e", alpha = 0.01) +
+  geom_hline(yintercept = 30, linetype = "dashed", color = "#78a12b", size = 0.8, alpha = 0.5) +
+  geom_hline(yintercept = 70, linetype = "dashed", color = "#78a12b", size = 0.8, alpha = 0.5) +
+  geom_line(aes(x = step_counter, y = val, col = group)) +
+  geom_point(data = . %>% filter(int == 1 & group != "z"), aes(x = step_counter, y = val, col = group), size = 1) +
+  geom_point(data = . %>% filter(int == 1 & group == "z"), aes(x = step_counter, y = val, col = group), size = 1.5) +
+  geom_point(data = . %>% filter(int == 2 & group == "z"), aes(x = step_counter, y = val, col = group), size = 1) +
+  scale_color_manual(
+    name = "Variable",
+    values = c("x" = "#0000ff", "y" = "#ff0000", "z" ="#1eae1e"),
+    labels = c("x" = "X", "y" = "Y", "z" = "Z")
+  ) +
+  scale_x_continuous(breaks = c(0, 5, 10, 15)) +
+  facet_grid(graph~control) +
+  labs(title = NULL, x = "Time Step", y = "Value") +
+  theme_light() +
+  theme(legend.position = "none",
+        strip.background = element_rect(fill = "white", color = "black"),
+        strip.text = element_text(color = "black", face = "bold", size = 10),
+        strip.text.y = element_blank(),        # hides row facet labels (graph)
+        strip.background.y = element_blank(),
+        plot.background = element_rect(fill = "transparent", color = NA))
+p3
+```
+
+```{r}
+ggsave("../figures/figure_simulation/simulated_plot_t15.png", p3, height = 8, width = 6, dpi = 600, bg = "transparent")
+```
+
