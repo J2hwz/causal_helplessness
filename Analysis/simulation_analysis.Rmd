@@ -62,12 +62,6 @@ no_df <- rbind(df1, df2, df3, df4) %>%
 rm(df1, df2, df3, df4)
 ```
 
-# Proportion scoring by timesteps 
-
-## Random simulation
-
-
-
 # Distribution of scores in random control models by condition 
 
 ```{r}
@@ -454,9 +448,6 @@ rbind(
     sd = sd(trial_score)
   )
 ```
-
-
-
 
 ## Raincloud plot
 

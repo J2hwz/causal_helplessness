@@ -121,16 +121,16 @@ df4 <- data.frame(
 
 ```{r}
 fig <- ggplot() +
-  geom_rect(data = df, aes(xmin = -Inf, xmax = Inf, ymin = 40, ymax = 60), fill = "#b0ed3e", alpha = 0.04) +
+  geom_rect(data = df, aes(xmin = -Inf, xmax = Inf, ymin = 40, ymax = 60), fill = "#b0ed3e", alpha = 0.05) +
   
   geom_line(data = df3, aes(x = timestep, y = value, col = variable, group = variable), linetype = "22", color = "#0000ff50", size = 0.8) +
   
   geom_line(data = df4, aes(x = timestep, y = value, col = variable, group = variable), linetype = "22", color = "#1eae1e50", size = 0.8) +
   
-  geom_point(data = df2, aes(x = timestep, y = value, col = variable), size = 2.3) +
+  geom_point(data = df2, aes(x = timestep, y = value, col = variable), size = 2.7) +
   geom_line(data = df2, aes(x = timestep, y = value, col = variable, group = variable), size = 1) +
   
-  geom_point(data = df, aes(x = timestep, y = value, col = variable), size = 2.3) +
+  geom_point(data = df, aes(x = timestep, y = value, col = variable), size = 2.7) +
   geom_line(data = df, aes(x = timestep, y = value, col = variable, group = variable), size = 1) +
   
   facet_wrap(
@@ -156,32 +156,35 @@ fig <- ggplot() +
   scale_color_manual(
     name = "Variable",
     values = c("x" = "#0000ff", 
-               "y" = "#ff0000", 
                "z" ="#1eae1e",
                "Counterfactual Unintervened X" = "#0000ff50", #00bcd9
                "Counterfactual Z" = "#1eae1e50"),
                # "Counterfactual Z" = "#08f200"),
-    labels = c("x" = "Intervened X", "y" = "Y", "z" = "Z")
+    labels = c("x" = "X (intervened)", 
+               "z" = "Z (observed)", 
+               "Counterfactual Z" = "Z (counterfactual)", 
+               "Counterfactual Unintervened X" = "X (unintervened)")
     ) +
   xlab("Time step") +
   theme_light() +
   theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 15),
+    legend.position = "top",
+    legend.text = element_text(size = 20),
     legend.title = element_blank(),
     strip.background = element_rect(fill = "white", color = "black", size = 1), # Set different color for strip background
-    strip.text = element_text(size = 15, face = "bold", color = "black"),  # Customize facet label text
-    axis.text.x = element_text(size = 15),   # X-axis text size
-    axis.title.x = element_text(size = 15),  # Y-axis title size
+    strip.text = element_text(size = 16, face = "bold", color = "black"),  # Customize facet label text
+    axis.text.x = element_text(size = 16),   # X-axis text size
+    axis.title.x = element_text(size = 16),  # Y-axis title size
     axis.title.y = element_blank(),  # Y-axis title size
-    axis.text.y = element_text(size = 15)   # Y-axis text size
-  )
+    axis.text.y = element_text(size = 16)   # Y-axis text size
+  ) +
+  guides(colour = guide_legend(nrow = 2, ncol = 2, title = NULL, override.aes = list(size = 3)))
 
 fig
 ```
 
 ```{r}
-ggsave("../figures/counterfactual_example.png", fig, height = 7, width = 8, dpi = 600)
+ggsave("../figures/counterfactual_example.png", fig, height = 7.5, width = 8, dpi = 600)
 ```
 
 
